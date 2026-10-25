@@ -1,0 +1,230 @@
+{
+  "dataset": "rel-f1",
+  "task": "driver-top3",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 12,
+  "n_rounds": 1,
+  "cost_usd": 1.0074,
+  "accepted": [
+    {
+      "name": "share_of_grid_deficit_recovered",
+      "table": "results",
+      "expression": "(grid - positionOrder) / maximum(grid, 1)",
+      "description": "Places gained between the start slot and the final classification, expressed as a fraction of the deficit the driver started with. Gaining five places from P20 is routine; gaining five from P6 is not, and the raw difference cannot tell them apart. The maximum(grid, 1) guard also stops the grid = 0 sentinel (a pit-lane start) from dividing by zero, though such rows still land at a large negative value.",
+      "units": "fraction of starting deficit (dimensionless)",
+      "expected_range": [
+        -39.0,
+        1.0
+      ],
+      "why_it_matters": "A driver who repeatedly converts a large share of their starting deficit is a racer, not just a fast qualifier; the raw place difference is dominated by how far back they started.",
+      "columns": [
+        "grid",
+        "positionOrder"
+      ],
+      "problems": []
+    },
+    {
+      "name": "clean_podium",
+      "table": "results",
+      "expression": "(positionOrder <= 3) * (position > 0)",
+      "description": "One if the entry was classified AND finished in the top three, zero otherwise. positionOrder is never null and orders retirements after finishers, so it alone can be misread; requiring position to be non-null (position is null for 41.7 percent of rows, every unclassified car) makes this a genuine podium rather than an artefact of the ordering column.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "This is the per-race event whose future occurrence the task asks about; aggregated over a driver's past races it is their podium rate, the single most natural predictor.",
+      "columns": [
+        "position",
+        "positionOrder"
+      ],
+      "problems": []
+    },
+    {
+      "name": "front_row_start",
+      "table": "results",
+      "expression": "(grid >= 1) * (grid <= 3)",
+      "description": "One if the car started from the first two rows of the grid (P1-P3). The grid >= 1 half is load-bearing: grid = 0 is not a better-than-pole slot, it is the sentinel for a pit-lane or back-of-grid start, and any model treating grid as an ordinal will read those rows as the best start slot in the database.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Podiums are overwhelmingly won from the front of the grid; a driver's rate of front-row starts is a direct measure of car-plus-driver qualifying pace, with the sentinel trap removed.",
+      "columns": [
+        "grid"
+      ],
+      "problems": []
+    },
+    {
+      "name": "retirement_distance",
+      "table": "results",
+      "expression": "(1 - (position > 0)) * (laps + 1)",
+      "description": "Zero if the car was classified; otherwise the lap on which it stopped (laps completed plus one). This separates a lap-one collision from a late engine failure, which the raw laps column cannot do because a classified finisher and a car that ran 55 of 56 laps before retiring have nearly identical laps.",
+      "units": "laps (0 = classified finish)",
+      "expected_range": [
+        0.0,
+        201.0
+      ],
+      "why_it_matters": "Reliability is a podium killer, and its severity matters: a team whose failures cluster at the end of races is losing points it had already earned, which is a different thing from a driver who keeps crashing at the start.",
+      "columns": [
+        "laps",
+        "position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "places_lost_to_pace",
+      "table": "results",
+      "expression": "maximum(positionOrder - maximum(rank, 1), 0)",
+      "description": "How many places worse the driver finished than their fastest-lap rank in that race, counting only the downside. rank is the ordering of drivers by fastest lap, so it measures raw one-lap speed independent of the result; the gap is what traffic, strategy, a pit-stop error or a late problem cost. The inner maximum(rank, 1) neutralises the rank = 0 rows, which are an unrecorded value rather than a car faster than the fastest. Null wherever rank is null (about 70 percent of rows, all pre-2004).",
+      "units": "finishing places",
+      "expected_range": [
+        0.0,
+        38.0
+      ],
+      "why_it_matters": "Separates 'the car is slow' from 'the car is quick but the race keeps going wrong' \u2014 two very different priors on whether the next podium arrives.",
+      "columns": [
+        "positionOrder",
+        "rank"
+      ],
+      "problems": []
+    },
+    {
+      "name": "places_gained_over_pace",
+      "table": "results",
+      "expression": "maximum(maximum(rank, 1) - positionOrder, 0)",
+      "description": "The mirror of places_lost_to_pace: how many places better the driver finished than their raw fastest-lap speed would suggest, counting only the upside. Comes from tyre management, strategy, a clean start, or simply surviving while quicker cars did not. Null wherever rank is null.",
+      "units": "finishing places",
+      "expected_range": [
+        0.0,
+        23.0
+      ],
+      "why_it_matters": "A clipped positive part aggregates into a racecraft score; the signed difference would let the two mechanisms cancel and average to roughly nothing.",
+      "columns": [
+        "positionOrder",
+        "rank"
+      ],
+      "problems": []
+    },
+    {
+      "name": "dnf_from_front_of_grid",
+      "table": "results",
+      "expression": "(1 - (position > 0)) * (grid >= 1) * (grid <= 6)",
+      "description": "One when a car that started in the top six failed to be classified. This is the specific event in which a podium was on the table and was thrown away, as distinct from a retirement out of a midfield or back-row start where no podium was ever likely.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A driver with good grids and a high rate of this event has podium-capable pace but a suppressed podium rate; the two component columns each individually mislead about which of the two is happening.",
+      "columns": [
+        "grid",
+        "position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "points_from_deep_grid",
+      "table": "results",
+      "expression": "(points > 0) * (grid > 10)",
+      "description": "One when the driver scored championship points despite starting outside the top ten. Both halves are needed: points alone rewards drivers in good cars, and grid alone says nothing about what they did with the race.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Measures recovery drives specifically. A driver who scores from deep in the field has upside that their qualifying record hides.",
+      "columns": [
+        "grid",
+        "points"
+      ],
+      "problems": []
+    },
+    {
+      "name": "podium_grinder",
+      "table": "standings",
+      "expression": "(position <= 5) * (wins == 0)",
+      "description": "One when the driver sits in the top five of the drivers championship at this snapshot while still having no win this season. Being high in the table without wins is arithmetically only possible by repeatedly finishing just behind the winner \u2014 which is exactly the podium-without-victory profile. Note these standings figures are season-to-date cumulative and include the race they are dated by, so this is only safe against past snapshots.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "The task asks about top-three finishes, not wins, and this flag isolates the drivers whose season is built out of exactly that result.",
+      "columns": [
+        "position",
+        "wins"
+      ],
+      "problems": []
+    },
+    {
+      "name": "title_contender",
+      "table": "standings",
+      "expression": "(position <= 3) * (wins >= 1)",
+      "description": "One when the driver is in the championship top three at this snapshot and has already won at least once this season \u2014 a front-runner in the strong sense, as opposed to a consistent points-scorer. Same cumulative-snapshot caveat as podium_grinder.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Together with podium_grinder it splits the top of the championship into the two regimes that predict a future podium for quite different reasons; championship position alone merges them.",
+      "columns": [
+        "position",
+        "wins"
+      ],
+      "problems": []
+    },
+    {
+      "name": "winless_top_team",
+      "table": "constructor_standings",
+      "expression": "(position <= 3) * (wins == 0)",
+      "description": "One when the constructor is in the top three of the constructors championship at this snapshot but has not won a race this season. This is the second-best-car signature: fast enough to be on the podium most weekends, not fast enough to beat the dominant team.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Car quality is the dominant cause of podiums, and the second-tier-but-strong car is precisely the one that produces top-three finishes without wins. Same cumulative-snapshot caveat as the driver standings.",
+      "columns": [
+        "position",
+        "wins"
+      ],
+      "problems": []
+    },
+    {
+      "name": "qualified_top3",
+      "table": "qualifying",
+      "expression": "position <= 3",
+      "description": "One when the driver took a top-three slot in the qualifying session. qualifying carries only position and the car number (an identifier, so unusable arithmetically), so this threshold is the whole of the usable signal in the table. Present only from 1994 onward and for 460 of the 1,101 races, so it is null for every earlier seed.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Qualifying position is the cleanest measure of single-lap pace, unpolluted by race incidents, and a top-three qualifying rate is the most direct available prior on a top-three result. Note this is a threshold on a single column and may be judged a duplicate \u2014 proposed anyway because the table offers nothing else that is not an identifier.",
+      "columns": [
+        "position"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 12,
+      "n_accepted": 12,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.0074165,
+      "audit": {
+        "n_tool_calls": 14,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

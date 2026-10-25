@@ -1,0 +1,181 @@
+{
+  "dataset": "rel-avito",
+  "task": "user-clicks",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 1,
+  "cost_usd": 1.2115,
+  "accepted": [
+    {
+      "name": "dcg_discounted_ctr",
+      "table": "SearchStream",
+      "expression": "HistCTR / log(1 + Position)",
+      "description": "The ad's prior click-through rate discounted by the slot it was shown in, using the nDCG rank discount 1/log(1+rank) as the examination probability. This is the expected click contribution of this one impression, not the raw quality of the ad.",
+      "units": "expected clicks per impression (probability-scaled)",
+      "expected_range": [
+        0.0,
+        1.5
+      ],
+      "why_it_matters": "HistCTR is an ad-level prior supplied with the impression; Position is where the auction actually put it. A click only happens if the slot was examined, so neither column alone is the click propensity -- the discounted product is. Null on the ~51% of rows that are not paid contextual impressions, which is exactly the population that can never be clicked anyway. Typical values 0.002-0.015.",
+      "columns": [
+        "HistCTR",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "examined_paid_exposure",
+      "table": "SearchStream",
+      "expression": "(ObjectType == 3) / log(1 + Position)",
+      "description": "Examination weight of this impression if and only if it was a paid contextual slot (ObjectType 3), zero on organic listings. The rank-discounted amount of clickable inventory this row put in front of the visitor.",
+      "units": "examination probability (dimensionless, 0 to 1.44)",
+      "expected_range": [
+        0.0,
+        1.5
+      ],
+      "why_it_matters": "The NaN-free companion to dcg_discounted_ctr: HistCTR is missing on half the rows, so a user-level sum over it silently drops exposure. This quantity is defined on every impression and sums to 'how much examined, clickable advertising did this user actually see', which is the denominator of any click rate. Requires knowing that ObjectType 3 is the monetised slot -- established by its 48.6% share matching HistCTR's 48.55% non-null rate.",
+      "columns": [
+        "ObjectType",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "paid_top_slot_impression",
+      "table": "SearchStream",
+      "expression": "(ObjectType == 3) * (Position <= 1)",
+      "description": "Flag: this impression was a paid contextual ad that won the premium first slot -- simultaneously clickable and maximally examined.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Neither column is informative alone: a top slot that is organic cannot produce a click label, and a paid ad buried at slot 7 almost never gets one. The conjunction isolates the small population of impressions where clicks actually come from, so counting it per user is a far cleaner exposure measure than counting impressions. Mean plausibly 0.05-0.45 (position-1 share within paid inventory is not directly observable from marginals).",
+      "columns": [
+        "ObjectType",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "paid_below_fold_impression",
+      "table": "SearchStream",
+      "expression": "(ObjectType == 3) * (Position >= 6)",
+      "description": "Flag: this impression was paid contextual inventory placed in the deep block of the page (slot 6 or lower), where examination probability is small.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "The complement of paid_top_slot_impression, and the reason Position must be read as a categorical layout rather than a rank: the slot distribution is bimodal (p25=1, median=6, p75=7), i.e. a couple of top slots plus a lower block. Splitting a user's paid exposure into examined and unexamined halves separates 'saw few ads' from 'saw many ads, none of them visible' -- two users with identical impression counts and very different click propensity.",
+      "columns": [
+        "ObjectType",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "quality_placement_gap",
+      "table": "SearchStream",
+      "expression": "HistCTR * Position",
+      "description": "How far a high-quality ad fell down the page. Large when a high prior-CTR ad landed in a deep slot (good ad, outbid), small both for weak ads and for strong ads that won a top slot.",
+      "units": "probability x slot index",
+      "expected_range": [
+        0.0,
+        8.0
+      ],
+      "why_it_matters": "In an auction-ranked list placement should track quality, so the residual between the two is a named notion -- the ad was good but someone paid more. It is a product, not a difference or ratio, so it is outside the brute-force family, and it reads the two columns as what they are: a quality prior and an auction outcome. Null wherever HistCTR is. Typical values 0.005-0.08.",
+      "columns": [
+        "HistCTR",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "top_slot_click_prior",
+      "table": "SearchStream",
+      "expression": "HistCTR * (Position <= 1)",
+      "description": "The ad's prior click-through rate, kept only on premium-first-slot impressions and zeroed elsewhere. The click prior of the inventory the visitor could realistically have clicked.",
+      "units": "probability",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A per-user average of raw HistCTR is dominated by deep-slot impressions that were never examined, which dilutes exactly the signal you want. Masking to the examined slot makes the average answer 'how attractive were the ads this user genuinely saw'. Null on the ~51% of rows with no HistCTR; zero on examined-but-organic rows.",
+      "columns": [
+        "HistCTR",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "search_intent_score",
+      "table": "SearchInfo",
+      "expression": "IsUserLoggedOn + (CategoryID > 0) + (LocationID > 0)",
+      "description": "Count of commitment markers on a single search: signed in, scoped to a category below the taxonomy root, scoped to a geography below the root. 0 is an anonymous, entirely unscoped browse; 3 is a signed-in, doubly-filtered query.",
+      "units": "count of intent markers (0 to 3)",
+      "expected_range": [
+        0.0,
+        3.0
+      ],
+      "why_it_matters": "Reads CategoryID and LocationID as taxonomy positions rather than as ids: value 0 is the root node, which only searches use (ads start at 2), so a zero genuinely means 'no filter applied' and is semantic, not arithmetic on a key. Clicking is an engagement outcome, and an intent-weighted search count should separate users who browse from users who are shopping. Honest caveat on the range: I cannot measure the share of root-scoped searches from marginals (p25 of CategoryID is 13, so zeros are under 25% and could be near 0), so most of the variance may come from IsUserLoggedOn (mean 0.321) and the realised mean may sit near 2.3.",
+      "columns": [
+        "CategoryID",
+        "IsUserLoggedOn",
+        "LocationID"
+      ],
+      "problems": []
+    },
+    {
+      "name": "paid_inventory_log_price",
+      "table": "AdsInfo",
+      "expression": "IsContext * log1p(Price)",
+      "description": "Log asking price of an ad, kept only for ads in the paid contextual inventory and zero for organic listings. The price level of the advertising a visitor can be served, as distinct from the price level of the catalogue.",
+      "units": "log(1 + local currency units)",
+      "expected_range": [
+        0.0,
+        28.0
+      ],
+      "why_it_matters": "Price must be logged before it means anything (mean 4.28e6 against a median of 4,450, with a 777777777777 keyboard sentinel at the top), and the paid 0.42% of the catalogue is a different population from the rest -- it is the only inventory that carries a click label. Honest caveat: exactly zero on about 99.58% of AdsInfo rows by construction; its usefulness appears after the SearchStream join, where paid ads are heavily over-represented, not in the marginal distribution of this table.",
+      "columns": [
+        "IsContext",
+        "Price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "round_price_listing",
+      "table": "AdsInfo",
+      "expression": "(Price % 1000) == 0",
+      "description": "Flag: the asking price is an exact multiple of 1000, i.e. a round anchor number rather than a considered figure.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Price roundness is non-monotone in Price, so it is information no rescaling, difference or ratio of the numeric columns can produce, and it is a recognised listing signal -- round-number anchoring correlates with casual sellers and with negotiable, browse-attracting listings. Supported by the column's own shape: only 35,008 distinct values in a 2M-row sample means sellers pile onto round figures. Expected mean is uncertain within roughly 0.15-0.6, since the reported quartiles (700 / 4,450 / 40,000) straddle the multiple-of-1000 test.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 9,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.21146,
+      "audit": {
+        "n_tool_calls": 11,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

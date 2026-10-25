@@ -1,0 +1,175 @@
+{
+  "dataset": "rel-amazon",
+  "task": "user-ltv",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 1,
+  "cost_usd": 0.6952,
+  "accepted": [
+    {
+      "name": "price_cents_ending",
+      "table": "product",
+      "expression": "price % 1",
+      "description": "The cents part of the list price: .99/.95 marks a consumer retail price point, .00 marks a round price that in this catalogue means a bulk/wholesale listing, a placeholder, or the 0.0 missing-price sentinel.",
+      "units": "dollars (fractional part)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "price has only 8,679 distinct values clustered on retail endings; the ending separates genuinely merchandised items from round-priced placeholder rows, and a user-ltv target that sums prices is corrupted precisely by the round/placeholder rows.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_is_sentinel_missing",
+      "table": "product",
+      "expression": "price <= 0",
+      "description": "Flag for the 0.0 price sentinel. price has no nulls but a minimum of exactly 0.0, so 0.0 encodes an unknown price, not a free item.",
+      "units": "indicator",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "user-ltv is a sum of prices, so every sentinel row silently contributes $0 of revenue; a customer whose basket is mostly price-unknown items has a systematically understated label and needs to be distinguished from a customer who genuinely bought cheap.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "premium_price_excess",
+      "table": "product",
+      "expression": "maximum(price - 17.59, 0)",
+      "description": "Dollars by which the item exceeds the catalogue upper quartile (17.59): the amount of spend above an ordinary book-priced purchase, zero for everything in the normal band.",
+      "units": "dollars",
+      "expected_range": [
+        0.0,
+        5190.0
+      ],
+      "why_it_matters": "price is mean 16.14 with std 43.07 and a max of 5,204, so almost all variance in a summed-dollar target comes from the thin expensive tail. This hinge isolates that tail instead of letting it hide inside a mean.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "impulse_priced_item",
+      "table": "product",
+      "expression": "(price > 0) * (price < 5)",
+      "description": "Flag for a cheap item with a known price: under $5, excluding the 0.0 missing-price sentinel.",
+      "units": "indicator",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "the central confound in user-ltv is that review count is not spend. A heavy reviewer of $0.99 Kindle titles looks identical to a heavy buyer by activity and is worth an order of magnitude less; this names the cheap-item fraction of a basket directly, and the (price > 0) term keeps the sentinel out of it.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_satisfaction_margin",
+      "table": "review",
+      "expression": "verified * (rating - 3)",
+      "description": "Signed satisfaction, counted only when the purchase was verified: stars above or below neutral for confirmed buyers, exactly 0 for unverified reviews.",
+      "units": "stars relative to neutral",
+      "expected_range": [
+        -2.0,
+        2.0
+      ],
+      "why_it_matters": "verified is purchase evidence and rating is sentiment; only their conjunction says 'a real transaction that went well'. Unverified rows are neither evidence of spend nor reliable sentiment, so zeroing them is the right neutral rather than averaging them in.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_promoter_purchase",
+      "table": "review",
+      "expression": "verified * (rating >= 4)",
+      "description": "A confirmed purchase the customer was happy with (4 or 5 stars on a verified review).",
+      "units": "indicator",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "the repeat-purchase precursor: a satisfied verified buyer is the population that generates future spend. Aggregated over a customer's history this is a count of good transactions, which is closer to the LTV generative process than a count of reviews.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "unverified_five_star_praise",
+      "table": "review",
+      "expression": "(verified == 0) * (rating >= 5)",
+      "description": "A 5-star review with no verified purchase behind it \u2014 the incentivised, promotional or fabricated review pattern.",
+      "units": "indicator",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "30.5% of reviews are unverified and ~half of all reviews are 5 stars, so this cell is large and is where review volume decouples from purchase volume. An account dominated by it has activity that will never convert to dollars, which is the main way a volume-based LTV prediction overshoots.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "rating_extremity",
+      "table": "review",
+      "expression": "abs(rating - 3)",
+      "description": "Distance of the star rating from the neutral midpoint: 0 for a 3-star hedge, 2 for a 1- or 5-star verdict.",
+      "units": "stars",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "folds the two tails together to measure how polarised a reviewer is, independent of valence. Reviewing style is a stable per-account trait that no difference or ratio of rating with another column recovers, and it separates a deliberate rater from a reflexive 5-star clicker.",
+      "columns": [
+        "rating"
+      ],
+      "problems": []
+    },
+    {
+      "name": "dissatisfaction_depth",
+      "table": "review",
+      "expression": "maximum(3 - rating, 0)",
+      "description": "How far below neutral the rating fell: 1 for two stars, 2 for one star, 0 for anything from three stars up.",
+      "units": "stars below neutral",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "the rating distribution is crushed against 5 (mean 4.39, median 5), so a plain mean rating is almost constant across customers and carries little signal. A one-sided hinge keeps only the rare negative mass, where churn \u2014 and therefore the end of a customer's spend \u2014 actually shows up.",
+      "columns": [
+        "rating"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 9,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 0.695165,
+      "audit": {
+        "n_tool_calls": 3,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

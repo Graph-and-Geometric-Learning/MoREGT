@@ -1,0 +1,225 @@
+{
+  "dataset": "rel-stack",
+  "task": "user-badge",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 12,
+  "n_rounds": 1,
+  "cost_usd": 1.0961,
+  "accepted": [
+    {
+      "name": "site_vs_network_seniority_gap",
+      "table": "users",
+      "expression": "Id / 333784 - AccountId / 29354942",
+      "description": "Where this person falls in this site's signup order minus where they fall in the whole network's signup order, both expressed as a fraction of the respective history. Positive = a long-standing network member who only arrived at this site late (a migrant veteran); negative = someone who joined the network in order to use this site. Both columns are dense monotone signup ranks (the recorded docs state AccountId is monotone in network signup order and has no referent in this database), so this is a difference of two normalized timelines, not identifier arithmetic. The two scale constants are what make it meaningful -- AccountId is ~88x larger, so a raw difference or ratio of the two is dominated by AccountId and denotes nothing.",
+      "units": "fraction of signup history (dimensionless, difference of two [0,1] ranks)",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "For user-badge, prior experience of the badge system itself is the strongest kind of prior a cold entity row can carry: a network veteran arriving here already knows how badges are earned and clears Autobiographer/Editor/Supporter almost immediately, while a network newcomer ramps slowly. Neither raw id expresses this; only the normalized gap does.",
+      "columns": [
+        "AccountId",
+        "Id"
+      ],
+      "problems": []
+    },
+    {
+      "name": "achievement_badge_prestige",
+      "table": "badges",
+      "expression": "(TagBased == 0) * (4 - Class)",
+      "description": "Prestige weight of a non-tag (achievement) badge: 3 for gold, 2 for silver, 1 for bronze, and 0 for every tag badge. Class is an ordered tier code with 1 = rare/gold and 3 = common/bronze, so 4 - Class turns it into an increasing difficulty score; gating on TagBased excludes the tag badges, which are mechanical by-products of answering inside one tag rather than distinct milestones.",
+      "units": "badge tiers (ordinal 0-3)",
+      "expected_range": [
+        0.0,
+        3.0
+      ],
+      "why_it_matters": "A user's badge history is the single most predictive neighborhood for user-badge, but raw Class is backwards (3 is the easy one) and lumps tag badges in with achievements. This gives the model a monotone 'how hard was this badge' signal on exactly the badge kind that reflects deliberate engagement.",
+      "columns": [
+        "Class",
+        "TagBased"
+      ],
+      "problems": []
+    },
+    {
+      "name": "tag_specialist_badge",
+      "table": "badges",
+      "expression": "(TagBased == 1) * (Class <= 2)",
+      "description": "Flags a tag badge earned at silver or gold tier, i.e. demonstrated topical mastery in one tag rather than a bronze participation marker. Needs both columns: TagBased alone cannot distinguish the routine bronze tag badge from real specialisation, and Class alone cannot tell a gold tag badge from a gold achievement badge.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Silver/gold tag badges are earned by sustained accepted answering in a topic, which is the activity pattern that keeps generating further badges. It separates users on a durable answering track from users who collected one-off profile badges.",
+      "columns": [
+        "Class",
+        "TagBased"
+      ],
+      "problems": []
+    },
+    {
+      "name": "reputation_delta_to_post_owner",
+      "table": "votes",
+      "expression": "15 * (VoteTypeId == 1) + 10 * (VoteTypeId == 2) - 2 * (VoteTypeId == 3)",
+      "description": "Approximate reputation points this vote transfers to the owner of the voted post, using the platform's published schedule: accepted answer +15, upvote +10, downvote -2, every other vote type (favorite, close, deletion, spam, moderator review, edit approval) 0. Values are {-2, 0, 10, 15}. Note the approximation: VoteTypeId 2 covers question upvotes too, which are worth +5, so upvotes on questions are overweighted by 5.",
+      "units": "reputation points",
+      "expected_range": [
+        -2.0,
+        15.0
+      ],
+      "why_it_matters": "This is the only reputation-bearing quantity in the database -- rel-stack strips Score, so nothing else says what a vote is worth. Subtracting or ratioing VoteTypeId codes (which is all a brute-force generator can do with it) is nonsense; the codes are labels. Badge thresholds are reputation thresholds, so a signed, correctly weighted per-vote reputation value is the natural input for user-badge.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_score_moving_vote",
+      "table": "votes",
+      "expression": "(VoteTypeId >= 2) * (VoteTypeId <= 3)",
+      "description": "Whether this vote changes the voted post's visible score (up or down), as opposed to every other vote type, which records acceptance, a favorite, or a moderation action. This is a band on a label column -- codes 2 and 3 sit between acceptance (1) and the moderation codes (4-16) -- so it is not a monotone rescaling of VoteTypeId.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Separates the community's quality verdict from bookkeeping events, letting a count over a user's incoming votes mean 'judged content' rather than 'any vote row'. Score-moving traffic is what drives the reputation-linked badges this task predicts.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_content_suppression_vote",
+      "table": "votes",
+      "expression": "(VoteTypeId == 6) + (VoteTypeId == 10) + (VoteTypeId == 12)",
+      "description": "Whether this vote is an attempt to remove the post from the site: close (6), delete (10) or spam (12). The three codes are not contiguous, so no threshold on VoteTypeId isolates them; they are grouped only by knowing what the codes mean. Codes 7 and 11 (reopen, undelete) are deliberately excluded because they push the other way.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Negative moderation pressure is the opposite signal to reputation accrual and is invisible once Score is stripped. A user whose recent posts attract close/delete/spam votes is on a trajectory away from badges, which a plain vote count cannot express.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_bounty_vote",
+      "table": "votes",
+      "expression": "(VoteTypeId >= 8) * (VoteTypeId <= 9)",
+      "description": "Whether this vote row records a bounty being started (8) or awarded (9) rather than an ordinary vote. A contiguous two-code band in the middle of the code list, so again not a rescaling. Expect this to be rare -- a small fraction of a percent of rows -- but nonzero: the column has 14 distinct codes in 1..16, consistent with the full standard code list minus 13 and 14.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Bounties are the mechanism behind the Promoter and Benefactor badges and are a direct marker of a user with reputation to spend. Those badge types are otherwise unrepresented by anything in the row.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_edit_revision",
+      "table": "postHistory",
+      "expression": "(PostHistoryTypeId >= 4) * (PostHistoryTypeId <= 6)",
+      "description": "Whether this history row is an edit of an existing post (edit title 4, edit body 5, edit tags 6) rather than the post's original authoring (1-3), a rollback (7-9) or a lifecycle event (10+). The code column is a label with 30 distinct values up to 66; only a band isolates the edit block, and a mean or threshold over it has no meaning.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Editing is its own badge track entirely separate from posting -- Editor, Strunk & White, Copy Editor, Archaeologist -- and postHistory is the only table that records it. Without this flag a count of a user's postHistory rows cannot distinguish an author from a curator, yet those two users have very different badge futures.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_body_revision",
+      "table": "postHistory",
+      "expression": "(PostHistoryTypeId <= 9) * ((PostHistoryTypeId % 3) == 2)",
+      "description": "Whether this revision touched the post's body -- the substantive content -- as opposed to only its title or tags. The nine authoring codes are three ordered triples (1-3 initial, 4-6 edit, 7-9 rollback), each ordered title/body/tags, so the body codes are exactly 2, 5 and 8: residue 2 mod 3 within the first nine codes. The guard on <= 9 is required because the residue pattern is an artefact of the authoring block and carries no meaning for codes 10-66.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A title or tag tweak and a body rewrite are both one postHistory row but differ by an order of magnitude in effort, and body edits are what the editing badges actually reward. This exploits documented structure in the code list that no pairwise generator can reach.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_post_lifecycle_event",
+      "table": "postHistory",
+      "expression": "(PostHistoryTypeId >= 10) * (PostHistoryTypeId <= 15)",
+      "description": "Whether this row is a moderation state change on the post -- closed (10), reopened (11), deleted (12), undeleted (13), locked (14), unlocked (15) -- rather than authoring or editing. These rows are not authored content at all, and their UserId is a moderator acting on someone else's post.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Without this flag, moderation rows inflate a user's apparent authoring volume and, worse, attach another user's post to them. It also identifies the privileged users whose remaining badges are moderation badges, a population whose badge dynamics differ completely from ordinary posters.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "answer_lag_in_site_posts",
+      "table": "posts",
+      "expression": "Id - ParentId",
+      "description": "How many posts the whole site produced between a question being asked and this answer being written: an answer-latency measured in site activity volume rather than in clock time. Both columns live in one dense, chronologically re-indexed posts key space (ParentId's quartiles sit systematically earlier than Id's, as parents must), so the difference is a gap between two ranks on the same timeline, not an operation on identifiers -- the quantity is an interval, and the fact that the units are 'posts elapsed' rather than 'days elapsed' is the point: it is already normalized by how busy the site was. Null (and hence undefined) on the 51% of rows that are questions or tag wikis.",
+      "units": "posts created site-wide",
+      "expected_range": [
+        0.0,
+        415913.0
+      ],
+      "why_it_matters": "Answering a question in a quiet stretch versus answering one that has been open through thousands of other posts are different behaviours: fast answers earn Quick Answerer-type badges, late answers earn Necromancer and Revival. rel-stack strips every count column, so volume-scaled latency is one of the few intensity measures available, and it needs no second table.",
+      "columns": [
+        "Id",
+        "ParentId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "linked_post_span",
+      "table": "postLinks",
+      "expression": "abs(PostId - RelatedPostId)",
+      "description": "How far apart in site history the two ends of a link sit, measured in posts created between them. Both columns are posts.Id, the same dense chronological rank space, so this is a span on one timeline. Taken as an absolute value deliberately: the citing post is usually the newer end, but a link can be added by a later edit to an old post, so the signed version is not reliably positive. Undefined on the ~20% of rows whose PostId is dangling.",
+      "units": "posts created site-wide",
+      "expected_range": [
+        0.0,
+        415913.0
+      ],
+      "why_it_matters": "A short span means a question was duplicated or referenced while it was still current; a long span means someone reached back into the archive, which is the Archaeologist/Necromancer behaviour pattern. It also grades duplicate-detection lag, distinguishing a question closed quickly from one closed years later.",
+      "columns": [
+        "PostId",
+        "RelatedPostId"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 12,
+      "n_accepted": 12,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.0960835000000002,
+      "audit": {
+        "n_tool_calls": 13,
+        "n_off_allowlist": 1,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

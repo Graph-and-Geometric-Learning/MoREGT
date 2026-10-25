@@ -1,0 +1,229 @@
+{
+  "dataset": "rel-avito",
+  "task": "ad-ctr",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 12,
+  "n_rounds": 1,
+  "cost_usd": 1.1944,
+  "accepted": [
+    {
+      "name": "click_surprise_z",
+      "table": "SearchStream",
+      "expression": "(IsClick - HistCTR) / sqrt(HistCTR * (1 - HistCTR) + 0.0001)",
+      "description": "Pearson residual of the impression's click outcome against the prior CTR that was served with it: the realized click minus its expectation, divided by the Bernoulli standard deviation of that expectation (with a 1e-4 variance floor so near-certain priors cannot blow up).",
+      "units": "standard deviations of a Bernoulli trial",
+      "expected_range": [
+        -101.0,
+        101.0
+      ],
+      "why_it_matters": "HistCTR is a prior and IsClick is the outcome of the same trial; their raw difference treats a click on a 0.1%-prior ad the same as a click on a 20%-prior ad. Standardizing by sqrt(p(1-p)) makes the residual comparable across the four-order-of-magnitude HistCTR range (min 1e-5, median 0.0054), so averaging it over an ad's past impressions says 'is this ad beating the platform's own estimate of it', which is exactly the signal a next-window CTR target needs. Uses only past-window impressions, so it is a past-label feature, not leaderboard-comparable.",
+      "columns": [
+        "HistCTR",
+        "IsClick"
+      ],
+      "problems": []
+    },
+    {
+      "name": "log_click_lift",
+      "table": "SearchStream",
+      "expression": "log1p(IsClick / (HistCTR + 0.000001))",
+      "description": "Log multiplicative lift of the realized click over the prior click probability served with the impression. Zero when the ad was not clicked; large when a low-prior ad was clicked anyway.",
+      "units": "log-ratio (nats)",
+      "expected_range": [
+        0.0,
+        12.0
+      ],
+      "why_it_matters": "The additive residual is dominated by whether a click happened at all; the multiplicative lift asks how improbable that click was. Because HistCTR spans 1e-5 to 1.0, the lift spans five orders of magnitude and only makes sense on a log scale. Aggregated per ad it separates 'clicked because it was in a high-CTR slot' from 'clicked despite a weak prior', which is the part of the next-window CTR the prior does not already explain.",
+      "columns": [
+        "HistCTR",
+        "IsClick"
+      ],
+      "problems": []
+    },
+    {
+      "name": "position_discounted_prior",
+      "table": "SearchStream",
+      "expression": "HistCTR / log1p(Position)",
+      "description": "Prior click-through rate divided by the standard DCG-style log discount of the slot the ad occupied: the prior re-expressed per unit of slot visibility.",
+      "units": "probability per unit log-slot-depth",
+      "expected_range": [
+        0.0,
+        1.5
+      ],
+      "why_it_matters": "Position is a reserved page slot, not a rank, and only five of the eight slot numbers are ever used, with mass at slot 1 and again at slots 6-8. A given prior CTR earned in the buried block implies a far more attractive ad than the same prior in the top slot. Dividing out the log discount gives a visibility-free quality estimate, so an ad's average over past impressions is not confounded by the slot mix it happened to get served.",
+      "columns": [
+        "HistCTR",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "premium_paid_impression",
+      "table": "SearchStream",
+      "expression": "(ObjectType == 3) * (Position <= 1)",
+      "description": "Indicator that this impression was a paid contextual listing (ObjectType 3, the only type that carries a click label) AND landed in the top slot.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "ObjectType 3 is the paid inventory (48.6% of impressions, and the only rows where HistCTR and IsClick are populated) and slot 1 is the top of the page; neither column alone identifies a premium impression. Summed over an ad's past window this counts how much genuinely clickable, high-visibility exposure it bought, which is the denominator the CTR target is actually computed over. Knowing that ObjectType is a slot *kind* and Position a reserved slot is what makes the conjunction meaningful rather than arithmetic on two integers.",
+      "columns": [
+        "ObjectType",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "paid_top_slot_prior",
+      "table": "SearchStream",
+      "expression": "HistCTR * (ObjectType == 3) * (Position <= 1)",
+      "description": "The prior click-through rate, credited only on premium paid top-slot impressions and zeroed everywhere else.",
+      "units": "probability",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A per-ad mean of raw HistCTR mixes priors measured in very different exposure conditions. Masking the prior down to the one slot-and-type combination where a click is both possible and well-lit gives a prior restricted to comparable trials. The sum over an ad's past impressions is an expected-clicks-from-premium-exposure quantity; the mean is its best-conditions prior.",
+      "columns": [
+        "HistCTR",
+        "ObjectType",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "top_slot_click_residual",
+      "table": "SearchStream",
+      "expression": "(IsClick - HistCTR) * (Position <= 1)",
+      "description": "Over- or under-performance of the click outcome versus its prior, counted only for impressions served in the top slot.",
+      "units": "probability",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "Miscalibration is not slot-uniform: the platform's prior is typically fit well on the premium slot and poorly on the buried block. Restricting the residual to slot 1 isolates the part of the ad's over-performance that the serving system itself was trying hardest to predict and still got wrong, which is the part most likely to persist into the next window. A past-label feature.",
+      "columns": [
+        "HistCTR",
+        "IsClick",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "buried_organic_impression",
+      "table": "SearchStream",
+      "expression": "(ObjectType < 3) * (Position >= 6)",
+      "description": "Indicator that the impression was a free/organic listing (ObjectType 1 or 2) shown in the lower slot block.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Roughly half of all impressions carry no click label at all because they are not paid inventory. Summed per ad this is the volume of exposure that contributes to the ad being seen but contributes nothing to the CTR numerator or denominator -- a confound that makes raw impression counts a bad popularity proxy. Separating labelled from unlabelled exposure requires knowing what ObjectType encodes; it cannot be read off either column alone.",
+      "columns": [
+        "ObjectType",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_is_sentinel",
+      "table": "AdsInfo",
+      "expression": "Price >= 1000000000",
+      "description": "Indicator that the listed price is a placeholder rather than a real amount -- a billion roubles or more, e.g. the 777777777777 seen at the maximum.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Price has a median of 4,450 and a p75 of 40,000 but a mean of 4.28 million and a maximum of 7.8e11, so a thin tail of repeated-digit sentinels drags every price statistic and every price ratio the brute-force generator produces. Flagging them turns a corrupting outlier into an informative one: a sentinel price means 'price not stated', a seller behaviour that changes how an ad is clicked. Recognizing 777777777777 as typed junk rather than a measurement is the whole content of this column.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_absent",
+      "table": "AdsInfo",
+      "expression": "Price <= 0",
+      "description": "Indicator that the ad carries a zero price -- a giveaway, a price-on-request listing, or a category where price is not applicable (services, jobs).",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Zero is the minimum of Price with no negatives, so this is the explicit no-price bucket and it is not the bottom of a continuum: a 0 means something categorically different from a 1-rouble price, which any log or ratio transform of Price silently merges with cheap items. Free and price-on-request ads attract clicks for a different reason than priced ones, so the flag belongs beside the magnitude, not inside it.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_is_round_thousand",
+      "table": "AdsInfo",
+      "expression": "(Price % 1000) == 0",
+      "description": "Indicator of a round-thousand asking price, the signature of a casually set or negotiable price.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "This only means anything if you know the column is money a human typed in. Round-thousand prices mark approximate, negotiation-anchor asks; exact non-round prices mark priced-to-sell or auto-generated listings. The distinction is invisible to every difference and ratio of Price with another column, because it lives in the low-order digits rather than the magnitude.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_charm_ending",
+      "table": "AdsInfo",
+      "expression": "(Price % 1000) >= 990",
+      "description": "Indicator of charm or just-below pricing -- an ask ending in 990 to 999 within its thousand (990, 1999, 24990, ...).",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Charm endings are a deliberate retail-pricing tactic and distinguish professional or resale sellers from private individuals offloading one item; the two populations differ sharply in click-through. Like the round-thousand flag this is a digit pattern, orthogonal to price magnitude and unreachable by any rescaling of Price.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "device_is_generic_bucket",
+      "table": "UserInfo",
+      "expression": "UserDeviceID == 2014",
+      "description": "Indicator that the visitor's parsed hardware device is the catch-all bucket 2014, which covers more than half of all users (p25, median and p75 of UserDeviceID are all 2014).",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "UserDeviceID has 892 levels but one of them absorbs the majority of users -- the shape of a generic desktop or unidentified-device default rather than a real model. Treating it as just another level wastes the single most useful cut in a table that holds nothing but four device ids, and arithmetic on the id is pure nonsense. Aggregated over the visitors who saw an ad, the share in this bucket is a desktop-versus-identified-mobile mix, and mobile and desktop click at very different rates.",
+      "columns": [
+        "UserDeviceID"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 12,
+      "n_accepted": 12,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.1944015000000001,
+      "audit": {
+        "n_tool_calls": 11,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

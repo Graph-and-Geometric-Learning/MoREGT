@@ -1,0 +1,177 @@
+{
+  "dataset": "rel-amazon",
+  "task": "item-churn",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 1,
+  "cost_usd": 0.8771,
+  "accepted": [
+    {
+      "name": "verified_satisfaction",
+      "table": "review",
+      "expression": "verified * (rating - 3)",
+      "description": "Signed satisfaction (stars above or below the neutral 3) counted only when the review came from a verified purchase; unverified reviews contribute exactly 0 rather than an unearned opinion.",
+      "units": "stars relative to neutral (3), purchase-verified only",
+      "expected_range": [
+        -2.0,
+        2.0
+      ],
+      "why_it_matters": "rating and verified are a measure and a provenance flag, not two measures. Averaging raw rating over a product's recent reviews mixes real buyers with the 30% unverified tail (promotional and non-purchase opinion). This is the quantity a person means by 'how happy are actual buyers right now', and credible dissatisfaction is what precedes a product's review stream drying up.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_complaint",
+      "table": "review",
+      "expression": "(rating <= 2) * verified",
+      "description": "Flag: a 1- or 2-star rating from a verified purchaser \u2014 a complaint backed by an actual purchase.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "ratings here are 50% five-star, so the informative event is the rare low rating; and a low rating with no purchase behind it is as likely to be a mistaken buyer or a competitor as a real defect. Summed over a product's recent window this is a defect/dissatisfaction count, the direct mechanism by which an item loses future demand and churns.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "unverified_top_rating",
+      "table": "review",
+      "expression": "(rating >= 5) * (1 - verified)",
+      "description": "Flag: a maximal 5-star rating from a reviewer with no verified purchase \u2014 the signature of incentivized, solicited or review-swap praise.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "the single most common row in this table is '5 stars, verified', so the diagnostic cell of the rating x verified cross is the opposite corner: top marks without a purchase. A product whose recent attention is mostly of this kind is being pushed rather than bought, and that attention stops when the push stops \u2014 a churn signal that raw mean rating actively hides, because it looks identical to genuine excellence.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_rating_mass",
+      "table": "review",
+      "expression": "verified * rating",
+      "description": "Star mass contributed only by purchase-verified reviews: the rating if the purchase was verified, 0 otherwise.",
+      "units": "stars (1-5), purchase-verified only",
+      "expected_range": [
+        0.0,
+        5.0
+      ],
+      "why_it_matters": "a product-level aggregate of this over a window, read against the count of verified rows, is the verified-only average rating \u2014 the quality number a shopper would actually trust. It is a product of two columns, so no pairwise difference or ratio of numeric columns reaches it, and unlike verified_satisfaction it preserves the absolute star level rather than only the sign around neutral.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_polarization",
+      "table": "review",
+      "expression": "verified * abs(rating - 3)",
+      "description": "How far a verified purchaser's rating sits from neutral, regardless of direction: intensity of credible opinion.",
+      "units": "stars from neutral (3), purchase-verified only",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "intensity and valence are different things and churn responds to both. A stream of credible 3-star 'it was fine' reviews is a product drifting into indifference; strong feeling in either direction means the item still provokes buyers. Pairing this with verified_satisfaction separates 'nobody cares' from 'people care and are unhappy', which a mean rating cannot distinguish.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "rating_extremity",
+      "table": "review",
+      "expression": "abs(rating - 3)",
+      "description": "Distance of the star rating from the neutral midpoint: 0 for a 3-star review, 2 for a 1- or 5-star review.",
+      "units": "stars from neutral (3)",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "the 1-5 scale is not a measurement axis that should be read linearly; its middle is 'no strong opinion' and both ends are engagement. This folds the scale at its own midpoint, which is not a rescaling of rating (it is non-monotone: 1 and 5 map together), and gives a product-level 'does this item still provoke a reaction' feature that is orthogonal to its average score.",
+      "columns": [
+        "rating"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_cents",
+      "table": "product",
+      "expression": "price % 1",
+      "description": "The sub-dollar part of the list price \u2014 the cents ending alone (0.99, 0.95, 0.00, ...).",
+      "units": "dollars (fractional part)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "only 8,679 distinct prices cover 506k products because real retail prices snap to psychological endings. The cents ending is therefore not noise but a marker of who set the price: a .99/.95 ending is an actively merchandised consumer item, an arbitrary ending is typically a marketplace or third-party listing. It carries none of price's magnitude, so it is not a rescaling, and it survives the enormous right tail (max $5,204) that distorts every ratio involving price.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_round_dollar_priced",
+      "table": "product",
+      "expression": "(price > 0) * ((price % 1) < 0.005)",
+      "description": "Flag: a priced item whose list price is a whole number of dollars ($10.00, $25.00), excluding the 0.0 missing-price sentinel.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "round-dollar pricing is the fingerprint of non-retail pricing \u2014 institutional, print-on-demand, bundled or hand-entered listings \u2014 as opposed to the charm pricing that dominates a merchandised catalogue. Those items collect reviews slowly and stop collecting them early, so this is a cold-start/churn prior available from a product's own static row with no history at all. The `price > 0` guard is load-bearing: 0.0 is a sentinel and would otherwise be counted as the roundest price of all.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_is_missing",
+      "table": "product",
+      "expression": "price <= 0",
+      "description": "Flag: the list price is the 0.0 sentinel, i.e. no price was recorded for this product \u2014 not a free item.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "price has a 0% null rate but a hard 0.0 floor, so its missingness is encoded in-band and every mean, ratio or difference the brute-force generator builds from price silently treats 'unknown' as 'free'. Made explicit, the flag is also informative in its own right: an unpriced catalogue row is usually delisted, out of print or never properly ingested, and such items are exactly the ones whose review stream ends.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 9,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 0.8770965,
+      "audit": {
+        "n_tool_calls": 3,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

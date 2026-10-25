@@ -1,0 +1,222 @@
+{
+  "dataset": "rel-stack",
+  "task": "post-votes",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 12,
+  "n_rounds": 1,
+  "cost_usd": 1.2624,
+  "accepted": [
+    {
+      "name": "score_vote_sign",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 2) - 1 * (VoteTypeId == 3)",
+      "description": "The signed contribution this vote makes to its post's score: +1 for an upvote (code 2), -1 for a downvote (code 3), 0 for every non-scoring action (accept, favourite, flag, close, delete, bounty, moderation).",
+      "units": "score points",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "votes pools fourteen different actions in one table with VoteTypeId typed as numerical, so any aggregate over it mixes upvotes with delete flags. Summed over a post's votes before the cutoff this column is the post's score -- the single strongest predictor of how many more votes it will attract, because score drives search ranking and 'hot' placement. A pairwise difference of VoteTypeId against anything cannot recover it.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_score_vote",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 2) + 1 * (VoteTypeId == 3)",
+      "description": "Whether this row is a scoring vote at all (upvote or downvote) rather than an accept, favourite, flag, bounty or moderation action.",
+      "units": "votes (indicator)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "The denominator for score_vote_sign. Summed it gives scoring-vote volume, which is the quantity the label actually continues; divided into score_vote_sign it gives the upvote ratio, i.e. controversy. A controversial post and a well-liked post can have identical scores but very different future vote rates.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_moderation_vote",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 4) + 1 * (VoteTypeId == 6) + 1 * (VoteTypeId == 10) + 1 * (VoteTypeId == 12)",
+      "description": "Whether this row is a suppressive moderation action against the post: offensive flag (4), close vote (6), delete vote (10) or spam flag (12).",
+      "units": "moderation actions (indicator)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "These are the vote codes that predict the post's future vote count going to zero, and they are numerically the largest codes, so a mean over raw VoteTypeId is dominated by exactly the rows whose meaning is opposite to an upvote. A post accumulating close/delete votes before the cutoff is about to stop being visible.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_endorsement_vote",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 1) + 1 * (VoteTypeId == 5)",
+      "description": "Whether this row is a durable endorsement rather than a score vote: the accepted-answer mark (1) or a favourite/bookmark (5).",
+      "units": "endorsements (indicator)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Accepts and bookmarks are the two actions that keep a post resurfacing in search and in users' saved lists long after the initial burst, so they predict the slow tail of vote accrual over a three-month horizon better than raw past volume does. They are also at most one per post (accept) or rare (favourite), so they are invisible in a count of all votes.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_bounty_vote",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 8) + 1 * (VoteTypeId == 9)",
+      "description": "Whether this row is a bounty lifecycle event on the post: bounty started (8) or bounty awarded/expired (9).",
+      "units": "bounty events (indicator)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A bounty buys the question featured placement for a week, which is a purchased exposure shock rather than organic interest. It is a rare code, so it is drowned out in any aggregate of all votes, but when present it is a near-deterministic signal of a vote burst in the following weeks -- precisely the task's horizon.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "visibility_delta",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId == 11) + 1 * (PostHistoryTypeId == 13) + 1 * (PostHistoryTypeId == 15) - 1 * (PostHistoryTypeId == 10) - 1 * (PostHistoryTypeId == 12) - 1 * (PostHistoryTypeId == 14)",
+      "description": "The signed change this history row makes to the post's visibility: -1 for closed (10), deleted (12) or locked (14); +1 for the matching reopen (11), undelete (13) or unlock (15); 0 for edits and everything else.",
+      "units": "visibility state steps",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "postHistory is the audit log, and these six codes are the open/closed/deleted state machine. Summed over a post's history up to the cutoff the result is its current visibility: negative means it is closed or deleted right now and will receive almost no further votes. That running state is a genuine quantity, and it is destroyed both by averaging PostHistoryTypeId and by counting history rows, since a close and its reopen are two rows that cancel.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_content_revision",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId >= 4) * (PostHistoryTypeId <= 6)",
+      "description": "Whether this history row is a post-creation edit of the title (4), body (5) or tags (6), as opposed to one of the three initial-content rows (1-3) written when the post was created, or a moderation event (>=10).",
+      "units": "edits (indicator)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Every post has roughly three history rows at birth, so a raw count of history rows per post is mostly a constant plus noise. This column isolates the maintenance effort a post is still receiving; a question whose tags and title are still being improved is still being read, and re-tagging in particular changes which tag feeds surface it, which directly moves future vote traffic.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_exposure_injection",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId == 50) + 1 * (PostHistoryTypeId == 25)",
+      "description": "Whether the platform itself pushed this post to a fresh audience: a community/Roomba bump of an unanswered question (50) or an automated tweet of the post (25).",
+      "units": "exposure events (indicator)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Both codes mean the post returned to the front page without any user doing anything to it, which is the mechanism behind the site's Revival badge (8,328 awards here). It is the one event that makes an old, dormant post's future vote count jump, so it separates genuinely dead posts from dormant-but-about-to-be-bumped ones. These are among the high-numbered codes that make a mean over PostHistoryTypeId meaningless.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "notice_banner_delta",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId == 33) - 1 * (PostHistoryTypeId == 34)",
+      "description": "The signed change this row makes to whether the post is displaying a moderator notice banner: +1 when a notice is added (33), -1 when one is removed (34), 0 otherwise.",
+      "units": "notice banners",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "Summed over the history before the cutoff this is whether the post currently carries a banner ('needs more focus', 'answer in comments', 'possible duplicate'). A banner is a visible warning to readers and depresses voting while it is up, and like the close/reopen pair it only becomes a state when the add and remove rows are allowed to cancel.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "qa_role_sign",
+      "table": "posts",
+      "expression": "1 * (PostTypeId == 1) - 1 * (PostTypeId == 2)",
+      "description": "Which side of the exchange this post is: +1 for a question, -1 for an answer, 0 for a tag-wiki, tag-wiki excerpt, moderator nomination or placeholder.",
+      "units": "signed role",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "PostTypeId is carried as numerical, so the model currently reads the seven codes as an ordinal scale on which a tag wiki (5) is more than twice a question (1). Questions and answers accrue votes by different mechanisms -- a question is voted by everyone who arrives from search, an answer only by the subset who read past the question -- so the question/answer contrast is the first-order split in vote volume, and it needs to be a contrast and not a magnitude.",
+      "columns": [
+        "PostTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_non_qa_artifact",
+      "table": "posts",
+      "expression": "1 - 1 * (PostTypeId == 1) - 1 * (PostTypeId == 2)",
+      "description": "Whether this row is not a question or an answer at all, but one of the ~2,900 tag-wiki, tag-wiki-excerpt, orphaned-tag-wiki, moderator-nomination or placeholder rows the dump also stores in posts.",
+      "units": "indicator",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "These rows are not votable content in the ordinary sense and sit at a hard floor of essentially zero future votes, but they are only 0.7% of the table so a model has little reason to discover them, and their text (short topic blurbs, no Title/Tags pattern of a question) looks superficially like a post. An explicit floor indicator stops them being predicted as short questions.",
+      "columns": [
+        "PostTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "duplicate_canonical_age_gap",
+      "table": "postLinks",
+      "expression": "1 * (LinkTypeId == 3) * (PostId - RelatedPostId)",
+      "description": "For a duplicate link only (LinkTypeId 3), how much of the site's posting history separates the duplicate question from the canonical post it was closed against, measured in posts created in between; 0 for an ordinary 'linked' relation (LinkTypeId 1).",
+      "units": "posts of site history",
+      "expected_range": [
+        -416000.0,
+        416000.0
+      ],
+      "why_it_matters": "Both endpoints are re-indexed densely in creation order, which is what lets the existing docs read link direction off the ids, so this difference is an elapsed-activity duration and not key arithmetic. A duplicate closed against a years-older canonical post marks that canonical post as a standing FAQ whose redirected traffic keeps paying votes, whereas a near-simultaneous duplicate marks a transient burst that will decay inside the three-month window. Gating the gap on the duplicate flag is what makes it a duration rather than a mixture: an ordinary 'linked' citation carries no such claim, and a pairwise difference of the two ids cannot condition on the link type.",
+      "columns": [
+        "LinkTypeId",
+        "PostId",
+        "RelatedPostId"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 12,
+      "n_accepted": 12,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.262403,
+      "audit": {
+        "n_tool_calls": 11,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

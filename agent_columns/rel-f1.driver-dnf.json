@@ -1,0 +1,256 @@
+{
+  "dataset": "rel-f1",
+  "task": "driver-dnf",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 14,
+  "n_rounds": 1,
+  "cost_usd": 1.1224,
+  "accepted": [
+    {
+      "name": "collision_dnf",
+      "table": "results",
+      "expression": "(statusId == 3) + (statusId == 4) + (statusId == 20) + (statusId == 130)",
+      "description": "The retirement was caused by contact or a driver error: Accident (3), Collision (4), Spun off (20) or Collision damage (130). statusId is a label code, not a measurement, so only equality tests on it mean anything.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "DNF has two nearly independent causes -- the driver crashes, or the car breaks. Collapsing them into one 'did not finish' bit throws away which failure mode this driver is prone to. Crash-DNFs track the driver and the start position; mechanical DNFs track the constructor.",
+      "columns": [
+        "statusId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "powertrain_failure_dnf",
+      "table": "results",
+      "expression": "(statusId >= 5) * (statusId <= 10)",
+      "description": "The retirement was a powertrain/systems failure: the contiguous Ergast block Engine (5), Gearbox (6), Transmission (7), Clutch (8), Hydraulics (9), Electrical (10).",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "The car-side half of the DNF cause split. This is the component that persists across a driver's next race, because the same team fields the same machinery -- it is the reliability signal, separated from driver error.",
+      "columns": [
+        "statusId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "classified_lapped_finish",
+      "table": "results",
+      "expression": "(statusId >= 11) * (statusId <= 19)",
+      "description": "The driver was classified but finished one to nine laps down: the Ergast '+1 Lap' .. '+9 Laps' block. This is a FINISH, not a retirement, despite sitting adjacent to the failure codes.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "'Slow but survived' is a third outcome that neither the DNF bit nor finishing position isolates. A car that is habitually lapped yet always reaches the flag is the opposite of a DNF risk, even though its finishing positions look as bad as a retiree's.",
+      "columns": [
+        "statusId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "positions_gained_fraction",
+      "table": "results",
+      "expression": "(grid - positionOrder) / maximum(grid, 1)",
+      "description": "Places gained between the starting slot and the final classification, as a fraction of the places that were available to gain. Normalising by the starting slot makes a 20th-to-10th recovery comparable with a 4th-to-2nd one, and comparable across eras whose grids held 34 cars or 20.",
+      "units": "fraction of starting slot",
+      "expected_range": [
+        -39.0,
+        1.0
+      ],
+      "why_it_matters": "The raw difference is dominated by field size and by how far back you started; the fraction is a rate of progress. Strongly negative values are the fingerprint of a race that ended early, since positionOrder ranks retirees behind every finisher.",
+      "columns": [
+        "grid",
+        "positionOrder"
+      ],
+      "problems": []
+    },
+    {
+      "name": "places_conceded",
+      "table": "results",
+      "expression": "maximum(positionOrder - grid, 0)",
+      "description": "Places LOST relative to the grid slot, rectified at zero so that gaining places does not net off against losing them.",
+      "units": "grid positions",
+      "expected_range": [
+        0.0,
+        39.0
+      ],
+      "why_it_matters": "Losing and gaining places are not one signed quantity with a common cause. Places gained is racecraft; places conceded is damage, a slow stop, or a car nursed home -- the asymmetric half that actually precedes a retirement. A signed difference averages the two away.",
+      "columns": [
+        "grid",
+        "positionOrder"
+      ],
+      "problems": []
+    },
+    {
+      "name": "pitlane_or_unqualified_start",
+      "table": "results",
+      "expression": "grid == 0",
+      "description": "grid == 0 is not the front of the grid -- it is the sentinel for a car that started from the pit lane or was not classified in qualifying. Treating it as a numeric position (better than pole) is exactly the error the raw column invites.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A pit-lane start almost always means an overnight rebuild, a power-unit change or a technical infringement -- a car already known to be compromised before the lights go out. It is the single most direct pre-race signal of an unhealthy car in this table.",
+      "columns": [
+        "grid"
+      ],
+      "problems": []
+    },
+    {
+      "name": "first_lap_retirement",
+      "table": "results",
+      "expression": "laps == 0",
+      "description": "The car was classified having completed zero laps: a start-line failure or a first-corner incident.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Zero-lap retirements are a distinct population from mid-race ones -- they are start incidents and launch/clutch failures, both of which recur for the same driver and the same car, whereas a lap-50 engine blow-up is closer to a coin flip.",
+      "columns": [
+        "laps"
+      ],
+      "problems": []
+    },
+    {
+      "name": "midfield_start",
+      "table": "results",
+      "expression": "(grid >= 6) * (grid <= 14)",
+      "description": "The driver started in the congested midfield band, behind the clear air of the top three rows but ahead of the stragglers.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "First-lap collision exposure is not monotone in grid slot -- it peaks in the middle. The front row escapes into clear air and the back of the grid arrives at turn one after the accident has happened. No monotone transform of `grid` can express a band.",
+      "columns": [
+        "grid"
+      ],
+      "problems": []
+    },
+    {
+      "name": "pace_without_a_result",
+      "table": "results",
+      "expression": "(rank >= 1) * (rank <= 5) * (positionOrder >= 11)",
+      "description": "The driver set a top-five fastest lap yet was classified eleventh or worse. rank == 0 is the no-fastest-lap-recorded sentinel and is excluded, so the flag is only defined for rows where a lap time was actually timed.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Genuine pace with no result is the signature of a race lost to trouble rather than to a slow car -- the disagreement between the two columns is the information, and it separates a fast car that keeps breaking from a slow car that keeps finishing.",
+      "columns": [
+        "positionOrder",
+        "rank"
+      ],
+      "problems": []
+    },
+    {
+      "name": "points_scored_from_outside_the_top_ten",
+      "table": "results",
+      "expression": "points * (grid >= 11)",
+      "description": "Championship points scored in races started from eleventh or further back; zero otherwise.",
+      "units": "championship points",
+      "expected_range": [
+        0.0,
+        50.0
+      ],
+      "why_it_matters": "Points scored from the front measure qualifying; points scored from deep in the field measure race-day car strength and, implicitly, that the car survived to the flag from a position where it had to fight through traffic.",
+      "columns": [
+        "grid",
+        "points"
+      ],
+      "problems": []
+    },
+    {
+      "name": "scoreless_campaign",
+      "table": "standings",
+      "expression": "points == 0",
+      "description": "The driver is still on zero championship points at this point in the season.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Zero is a qualitatively different state from a small score, not a small number: it marks a backmarker seat, and backmarker machinery retires at several times the rate of the front of the field. The distinction between 0 and 1 point carries more than the distinction between 40 and 41.",
+      "columns": [
+        "points"
+      ],
+      "problems": []
+    },
+    {
+      "name": "constructor_still_scoreless",
+      "table": "constructor_standings",
+      "expression": "points == 0",
+      "description": "The constructor has yet to score a single championship point this season.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "The car-side counterpart of the driver flag. Reliability is a property of the team's machinery, and a team that has scored nothing is running either the slowest or the least finished car -- both of which raise its drivers' DNF odds.",
+      "columns": [
+        "points"
+      ],
+      "problems": []
+    },
+    {
+      "name": "season_opener",
+      "table": "races",
+      "expression": "round == 1",
+      "description": "The first race of the championship season.",
+      "units": "flag (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Attrition is not uniform across the calendar. Round one is the first time a brand-new car runs a full race distance in anger, and it historically retires the largest share of the field; by mid-season the same cars have had their failure modes found and fixed.",
+      "columns": [
+        "round"
+      ],
+      "problems": []
+    },
+    {
+      "name": "equator_distance_deg",
+      "table": "circuits",
+      "expression": "abs(lat)",
+      "description": "Angular distance of the circuit from the equator, folding the two hemispheres together. Signed latitude treats Melbourne and Interlagos as the numeric opposites of Silverstone, which is meaningless for anything physical.",
+      "units": "degrees of latitude",
+      "expected_range": [
+        0.0,
+        58.0
+      ],
+      "why_it_matters": "Low-latitude venues (Sepang, Bahrain, Interlagos, Singapore) impose the heaviest ambient heat load, and heat drives the cooling, hydraulic and power-unit failures that end races. Hemisphere is irrelevant to that; distance from the equator is the quantity that matters.",
+      "columns": [
+        "lat"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 14,
+      "n_accepted": 14,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.1223565,
+      "audit": {
+        "n_tool_calls": 10,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

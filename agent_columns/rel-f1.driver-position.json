@@ -1,0 +1,178 @@
+{
+  "dataset": "rel-f1",
+  "task": "driver-position",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 1,
+  "cost_usd": 1.0503,
+  "accepted": [
+    {
+      "name": "positions_gained",
+      "table": "results",
+      "expression": "grid - positionOrder",
+      "description": "Places gained between the starting grid slot and the final classified order. Uses positionOrder rather than position because positionOrder is never null (it ranks retirements too), whereas position is null for the 41.7% of entries that did not finish \u2014 so this is defined for every entry, and a retirement shows up as a large loss rather than as a missing value. Positive = moved forward, negative = moved back. Note grid=0 is the pit-lane/unqualified start sentinel, not 'ahead of pole', so those rows are always negative here.",
+      "units": "grid positions",
+      "expected_range": [
+        -39.0,
+        34.0
+      ],
+      "why_it_matters": "Racecraft and race-day attrition, separated from raw car speed. For predicting a driver's average finishing position, 'where they end up relative to where they start' is the part of the signal the grid slot does not already carry.",
+      "columns": [
+        "grid",
+        "positionOrder"
+      ],
+      "problems": []
+    },
+    {
+      "name": "grid_recovery_fraction",
+      "table": "results",
+      "expression": "(grid - positionOrder) / maximum(grid, 1)",
+      "description": "Places gained as a fraction of the places that were actually available to gain. A driver starting 20th and finishing 10th converted half the deficit; a driver starting 2nd and finishing 1st also converted half. Raw positions_gained flatters backmarkers (a front-row starter cannot gain 15 places) and this normalises that out. Bounded above by (grid-1)/grid < 1; unbounded below, because a pole-sitter who retires loses many places off a denominator of 1. maximum(grid,1) guards the pit-lane-start rows (grid=0).",
+      "units": "dimensionless fraction of available places",
+      "expected_range": [
+        -39.0,
+        1.0
+      ],
+      "why_it_matters": "Makes 'overtaking performance' comparable across grid slots, so the same quantity means the same thing for a front-runner and a midfielder.",
+      "columns": [
+        "grid",
+        "positionOrder"
+      ],
+      "problems": []
+    },
+    {
+      "name": "avg_lap_ms",
+      "table": "results",
+      "expression": "milliseconds / maximum(laps, 1)",
+      "description": "Mean lap time: total race time divided by laps completed. This is the race pace, with race length divided out \u2014 milliseconds alone conflates a fast car with a long race (a 200-lap Indianapolis round and a 44-lap Belgian round are not comparable). Defined only for the 27.8% of entries that have a recorded total time (i.e. classified finishers); null elsewhere. Spread is wide because the span is 1950-2023: modern circuits average roughly 60-110 s/lap, while the old Nordschleife and Pescara rounds ran 9-10 minutes per lap.",
+      "units": "milliseconds per lap",
+      "expected_range": [
+        25000.0,
+        900000.0
+      ],
+      "why_it_matters": "The closest thing in the row to a pace measurement rather than a rank. A rank tells you who beat whom in that field; a lap time is a quantity that can be compared to the same driver's other races.",
+      "columns": [
+        "laps",
+        "milliseconds"
+      ],
+      "problems": []
+    },
+    {
+      "name": "fastest_lap_position_in_run",
+      "table": "results",
+      "expression": "fastestLap / maximum(laps, 1)",
+      "description": "Where in the driver's own run their fastest lap fell, as a fraction of the laps they completed. fastestLap is a lap NUMBER, not a lap time (range 2-85), so the natural thing to do with it is locate it within the race rather than treat it as a duration. Near 1 means the car was at its quickest at the end (fuel-light, tyres managed, or finally in clear air); near 0 means the quickest lap came early and pace decayed. Non-null for ~29% of entries (the timed era). Can slightly exceed 1 where the fastest-lap number and the classified lap count disagree.",
+      "units": "dimensionless fraction of the driver's completed distance",
+      "expected_range": [
+        0.0,
+        1.5
+      ],
+      "why_it_matters": "Encodes race shape \u2014 degradation versus recovery \u2014 which neither the finishing position nor the lap count contains.",
+      "columns": [
+        "fastestLap",
+        "laps"
+      ],
+      "problems": []
+    },
+    {
+      "name": "pace_vs_result_gap",
+      "table": "results",
+      "expression": "rank - positionOrder",
+      "description": "Gap between the driver's fastest-lap rank in the field and their classified result. Positive = finished better than their outright one-lap race pace, which is strategy, tyre management or others' attrition; negative = showed the speed but lost the result. Honest caveat: rank uses 0 as a 'no timed lap recorded' sentinel (and is null for ~70% of rows), so rank=0 rows read as a spurious large negative and should be read together with a missingness indicator.",
+      "units": "positions",
+      "expected_range": [
+        -39.0,
+        24.0
+      ],
+      "why_it_matters": "Separates 'slow' from 'unlucky'. A driver whose results sit well below their pace rank will regress upward in future races; one whose results sit above it will regress down. That is exactly the drift an average-finishing-position target cares about.",
+      "columns": [
+        "positionOrder",
+        "rank"
+      ],
+      "problems": []
+    },
+    {
+      "name": "quali_race_pace_mismatch",
+      "table": "results",
+      "expression": "abs(grid - rank)",
+      "description": "Absolute discrepancy between the driver's single-lap starting slot and their race-pace rank in the same event. Small means the package delivered the same relative speed in qualifying trim and race trim; large means a setup, strategy or reliability mismatch in either direction. Taken as an absolute value on purpose: both signs are the same phenomenon (inconsistency between the two regimes), whereas the signed difference would cancel across a driver's races. Only meaningful where rank is recorded and non-zero.",
+      "units": "positions",
+      "expected_range": [
+        0.0,
+        34.0
+      ],
+      "why_it_matters": "A consistency measure rather than a quality measure \u2014 it says how transferable a driver's qualifying form is to race pace, which is what makes a past grid slot a good or bad predictor of a future finish.",
+      "columns": [
+        "grid",
+        "rank"
+      ],
+      "problems": []
+    },
+    {
+      "name": "pitlane_start",
+      "table": "results",
+      "expression": "grid == 0",
+      "description": "Indicator that the entry started from the pit lane or was not classified on the grid at all. grid=0 is a sentinel inside a numeric column, not a measurement: read numerically it looks like a better slot than pole, which inverts its meaning. This isolates it so the remaining grid values can be treated as a genuine ordinal. True for a small minority of entries (penalties, failures to qualify, grid-slot data gaps).",
+      "units": "boolean (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Rescues every other grid-based quantity from a sentinel that silently poisons differences and ratios involving grid. Knowing what the column IS is the whole content of this one.",
+      "columns": [
+        "grid"
+      ],
+      "problems": []
+    },
+    {
+      "name": "reached_the_finish",
+      "table": "results",
+      "expression": "(statusId == 1) + (statusId >= 11) * (statusId <= 19)",
+      "description": "Indicator that the entry was classified as having reached the end of the race \u2014 either on the lead lap (status 'Finished') or lapped ('+1 Lap' through '+9 Laps') \u2014 as opposed to retiring. statusId is a code, not a measurement: differences and ratios of it are meaningless, but the specific small-integer block structure of the code is informative. This collapses ~140 distinct status codes into the one distinction that matters. Caveat: rel-f1 ships no status lookup table, so the id-to-label mapping is inferred from the Ergast convention (ids 1..141, 11-19 the lapped-finish block), which the observed min=1/max=141 is consistent with.",
+      "units": "boolean (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Finishing versus retiring is the single largest determinant of a driver's average finishing position, and it is the one fact the position column deletes (41.7% null) rather than records.",
+      "columns": [
+        "statusId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "equator_distance",
+      "table": "circuits",
+      "expression": "abs(lat)",
+      "description": "Distance of the venue from the equator in degrees of latitude \u2014 a proxy for ambient temperature and therefore for tyre and cooling demand. Taken as an absolute value because latitude's sign is a hemisphere label, not a magnitude: Melbourne (-37.85) and Jerez (+37.2) are climatically alike and far apart in raw lat, while Melbourne and Sakhir (+26) are close in neither. Because it is non-monotone in lat it is not a rescaling of it.",
+      "units": "degrees of latitude",
+      "expected_range": [
+        0.0,
+        58.0
+      ],
+      "why_it_matters": "Turns a coordinate into a physical condition. Raw lat is only an address; its absolute value is the quantity that correlates with how hard a car and its tyres are worked at that venue.",
+      "columns": [
+        "lat"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 9,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.0502805,
+      "audit": {
+        "n_tool_calls": 9,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

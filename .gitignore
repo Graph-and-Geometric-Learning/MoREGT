@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+/data/
+/checkpoints/
+/results/
+wandb/
+lightning_logs/
+/agent_columns/transcripts/

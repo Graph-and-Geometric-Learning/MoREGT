@@ -1,0 +1,177 @@
+{
+  "dataset": "rel-amazon",
+  "task": "user-churn",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 1,
+  "cost_usd": 0.5479,
+  "accepted": [
+    {
+      "name": "verified_star_rating",
+      "table": "review",
+      "expression": "rating * verified",
+      "description": "The star rating credited only when the review came from a verified purchase; unverified reviews contribute 0. Separates satisfaction that is backed by an actual transaction from opinion with no purchase evidence behind it.",
+      "units": "stars (0 if unverified)",
+      "expected_range": [
+        0.0,
+        5.0
+      ],
+      "why_it_matters": "Aggregated over a customer's history this is purchase-backed satisfaction. A churning customer and a loyal one can have the same mean rating; what differs is whether those stars came with money attached. rating and verified alone cannot express this -- their difference or ratio (what the brute-force generator tries) is meaningless, because verified is a provenance flag and rating is a measure.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "unverified_star_rating",
+      "table": "review",
+      "expression": "rating * (1 - verified)",
+      "description": "The star rating credited only when the purchase was NOT verified; verified reviews contribute 0. Measures how much of a reviewer's praise comes from items they have no recorded purchase of.",
+      "units": "stars (0 if verified)",
+      "expected_range": [
+        0.0,
+        5.0
+      ],
+      "why_it_matters": "Isolates the promotional / review-copy / Vine-style channel. A reviewer whose activity is mostly unverified is engaged with reviewing rather than with buying, and their continued activity depends on a supply of free items rather than on their own purchasing -- a different churn mechanism than a shopper going quiet. Mean should be well below the verified counterpart since ~70% of reviews are verified.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_disappointment",
+      "table": "review",
+      "expression": "(5 - rating) * verified",
+      "description": "Stars short of perfect on a purchase the customer actually made; zero for unverified reviews and zero for 5-star verified ones. The size of a real, paid-for letdown.",
+      "units": "stars below 5 (0 if unverified)",
+      "expected_range": [
+        0.0,
+        4.0
+      ],
+      "why_it_matters": "This is the churn-direction quantity: dissatisfaction that cost the customer money. It points the opposite way from verified_star_rating and so survives aggregation differently -- a customer's maximum or sum of this is 'worst paid experience so far' / 'accumulated paid regret', which is what makes someone stop buying. Most rows are 0 (half of all ratings are 5 stars), so expect a mean near 0.4 with a long right tail.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_complaint",
+      "table": "review",
+      "expression": "(rating <= 2) * verified",
+      "description": "Flags a review that is both a 1-or-2-star rating and a verified purchase: a genuine bad experience with an item the customer bought.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Thresholded rather than linear, because churn responds to whether a bad purchase happened at all, not to the average star level. Knowing what the columns ARE matters here: rating <= 2 on an unverified review is often a drive-by or competitive complaint, while the same rating on a verified purchase is a customer the retailer actually failed. Expect roughly 10-12% of rows to fire.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "unverified_top_rating",
+      "table": "review",
+      "expression": "(rating >= 5) * (1 - verified)",
+      "description": "Flags a 5-star review with no verified purchase behind it -- the signature of a review copy, a promotional unit, or an unsourced rave.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Distinguishes two populations that look identical on rating alone. A customer whose history is full of these is a reviewer rather than a buyer; their churn is driven by losing access to free product, and their 5-star ratings carry much less information about future purchasing. Expect ~13-18% of rows to fire, given ~50% 5-star and ~30% unverified.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "opinion_extremity",
+      "table": "review",
+      "expression": "abs(rating - 3)",
+      "description": "How far the rating sits from the neutral midpoint, regardless of direction: 2 for 1-star and 5-star alike, 0 for a 3-star.",
+      "units": "stars from neutral",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "Non-monotone in rating, so it is not a rescaling: it folds the scale and measures conviction instead of valence. The behavioural claim is that indifference, not anger, predicts churn -- a customer who keeps posting 3s has no strong relationship with the catalogue, while both enthusiasts and angry complainers are engaged. The brute-force generator never produces this, since it only differences and divides pairs of columns. Expect a high mean (~1.5) because the rating distribution is bimodal at 5 and 1.",
+      "columns": [
+        "rating"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ambivalent_review",
+      "table": "review",
+      "expression": "(rating >= 2) * (rating <= 4)",
+      "description": "Flags a middling rating (2, 3 or 4 stars) -- neither a rave nor a condemnation.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "The discrete, countable form of indifference, which aggregates into 'how many lukewarm experiences has this customer had'. Separate from opinion_extremity because it treats the rating scale as the ordinal label it is rather than as a measurement: the gap between 4 and 5 stars is a different kind of gap than the one between 2 and 3. Expect ~40% of rows to fire.",
+      "columns": [
+        "rating"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_missing",
+      "table": "product",
+      "expression": "price <= 0",
+      "description": "Flags a product whose list price is the 0.0 sentinel rather than a real price. These items are not free; their price was never captured.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A rescaling of price would be rejected, but this is the opposite of a rescaling: it recovers the missingness that price hides inside its own value range, and it is the only way a model can avoid averaging 0.0 into a customer's typical basket price. It also plausibly marks poorly-catalogued or delisted items, so a customer whose recent reviews concentrate on them is shopping at the edge of the catalogue.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_cents_part",
+      "table": "product",
+      "expression": "price % 1",
+      "description": "The fractional-dollar part of the list price -- the cents. Values near 0.99 and 0.95 mark deliberate charm pricing; exactly 0.0 marks a round-dollar price.",
+      "units": "dollars (fractional part)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Non-monotone in price and so not a rescaling of it: it reads the pricing convention rather than the price level. Charm-priced items are consumer retail priced to convert; round-dollar prices tend to be wholesale, imported, bulk or placeholder entries. This separates the consumer-facing catalogue from its administrative tail at every price point, which raw price cannot do. Expect heavy mass at 0.99 and 0.95 and a spike at 0.0 (which includes the missing-price sentinel).",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 9,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 0.547853,
+      "audit": {
+        "n_tool_calls": 1,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

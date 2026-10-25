@@ -1,0 +1,181 @@
+{
+  "dataset": "rel-avito",
+  "task": "user-visits",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 1,
+  "cost_usd": 1.3157,
+  "accepted": [
+    {
+      "name": "search_filters_applied",
+      "table": "SearchInfo",
+      "expression": "(CategoryID > 0) + (LocationID > 0)",
+      "description": "How many of the two search facets the visitor actually narrowed. Id 0 is the catch-all root node on both taxonomies -- AdsInfo.CategoryID has minimum 2 and AdsInfo.LocationID minimum 1, so no ad can ever sit on 0, while SearchInfo uses 0 on both: that value means 'no filter', not 'a particular category/city'. This is a sentinel test, not arithmetic on the ids. The quartiles (CategoryID p25=13, LocationID p25=166) put the unscoped share under 25 percent on each facet, so expect most rows at 2.",
+      "units": "count of facets narrowed (0, 1 or 2)",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "Summed/averaged over a user's past searches this is browse specificity: a filter-setter is shopping for a thing, a 0-filter visitor is window-shopping. The two behave very differently in how often they come back, and no count of searches can tell them apart.",
+      "columns": [
+        "CategoryID",
+        "LocationID"
+      ],
+      "problems": []
+    },
+    {
+      "name": "logged_on_targeted_search",
+      "table": "SearchInfo",
+      "expression": "IsUserLoggedOn * (CategoryID > 0) * (LocationID > 0)",
+      "description": "Indicator for a high-intent session: signed in AND scoped to a real category AND scoped to a real location. A conjunction, which is the point -- the marginals (32.1 percent logged on, plus each facet rate) are already available, but their AND is not recoverable from them. Expected mean roughly 0.10-0.30.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Per-user sum is the number of committed shopping sessions, per-user mean the share. Signed-in visitors are the ones who can be re-reached and who have an account worth returning to; combining that with filter use isolates the segment that actually transacts rather than drifting through.",
+      "columns": [
+        "CategoryID",
+        "IsUserLoggedOn",
+        "LocationID"
+      ],
+      "problems": []
+    },
+    {
+      "name": "click_surprise_weighted_by_slot",
+      "table": "SearchStream",
+      "expression": "(IsClick - HistCTR) * Position",
+      "description": "The click outcome minus the ad's own historical click prior, weighted by how far down the result page the slot sat. Subtracting HistCTR removes the ad's intrinsic pull so what is left is the visitor's appetite; multiplying by Position says a click on slot 7 took more deliberate work than one on slot 1. Null on the ~53 percent of rows that are organic impressions (no prior, no label) -- that nullity is itself meaningful. Nearly all mass sits in a tight negative band around -0.02 (clicks are 0.61 percent of labelled rows), with occasional positive spikes up to ~8.",
+      "units": "excess clicks x slot index",
+      "expected_range": [
+        -8.0,
+        8.0
+      ],
+      "why_it_matters": "A per-user average of this is click propensity net of the quality of inventory served -- a user who clicks more than the ads he was shown deserve is engaged, independently of how many impressions he happened to receive. The raw difference IsClick - HistCTR cannot distinguish an easy top-slot click from a deliberate deep one.",
+      "columns": [
+        "HistCTR",
+        "IsClick",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "log_click_lift_over_prior",
+      "table": "SearchStream",
+      "expression": "log1p(maximum(IsClick - HistCTR, 0) / maximum(HistCTR, 0.00001))",
+      "description": "Multiplicative upside lift of the realised click over the ad's prior, in log units: zero whenever the impression was not clicked, and large when a click landed on an ad whose prior said it almost never gets clicked. The raw ratio IsClick/HistCTR spans five orders of magnitude (HistCTR min 1e-05) and is unusable as a feature; the clamp plus log1p makes it a bounded, well-behaved lift. Exactly zero on roughly 99.4 percent of labelled rows.",
+      "units": "log click-lift (nats)",
+      "expected_range": [
+        0.0,
+        11.6
+      ],
+      "why_it_matters": "Relative lift and absolute excess are different quantities: a click on a 0.2-prior ad is unremarkable, a click on a 0.0001-prior ad is the user driving. Averaged per visitor this measures self-directed clicking, which is the behaviour that recurs.",
+      "columns": [
+        "HistCTR",
+        "IsClick"
+      ],
+      "problems": []
+    },
+    {
+      "name": "visibility_weighted_expected_clicks",
+      "table": "SearchStream",
+      "expression": "HistCTR * (ObjectType == 3) * (9 - Position)",
+      "description": "Expected click mass this paid impression was built to deliver: the ad's historical CTR prior times a slot-visibility weight that runs 8 at the top slot down to 1 at slot 8. ObjectType 3 is the paid contextual slot (its 48.6 percent share matches HistCTR's 48.55 percent non-null rate), so the mask zeroes organic rows where no prior exists. Expected mean around 0.03-0.06 on paid rows; heavily right-skewed because HistCTR is (quartiles 0.0024 / 0.0054 / 0.0117).",
+      "units": "visibility-weighted expected clicks",
+      "expected_range": [
+        0.0,
+        8.0
+      ],
+      "why_it_matters": "Summed over a user's impressions this is the quality of monetised inventory the platform chose to spend on him -- a revealed estimate of his value as a visitor, formed by the ranker from history this user's own feature rows never see. Neither HistCTR alone nor Position alone carries it: the same prior in slot 1 and slot 8 is a different amount of expected engagement.",
+      "columns": [
+        "HistCTR",
+        "ObjectType",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "click_depth",
+      "table": "SearchStream",
+      "expression": "IsClick * (Position - 1)",
+      "description": "How many slots below the top of the result list the clicked ad sat; 0 for an unclicked impression and also 0 for a top-slot click. Position is integral with 5 distinct values over 1..8 and bimodal mass (p25=1, median 6), so this separates the two modes cleanly. Null wherever IsClick is null (~53 percent of rows). Expected mean around 0.01-0.03.",
+      "units": "slots below the top slot",
+      "expected_range": [
+        0.0,
+        7.0
+      ],
+      "why_it_matters": "Click depth is the standard read on whether someone is scanning a page or taking the first thing offered. A visitor whose clicks come from deep in the list is working the listings and will keep coming back; one who only ever taps slot 1 may be a bounce. Raw Position averaged over impressions says nothing about this -- it reflects page layout, not behaviour.",
+      "columns": [
+        "IsClick",
+        "Position"
+      ],
+      "problems": []
+    },
+    {
+      "name": "cheap_impulse_item",
+      "table": "AdsInfo",
+      "expression": "(Price > 0) * (Price < 1000)",
+      "description": "Listing with a stated price under 1000 RUB (about 20 USD in 2015): the second-hand clothes, prams, books and giveaways end of the catalogue. Non-monotone in Price by construction -- it excludes the 0 'price on request' rows at the bottom as well as everything above the threshold -- so it is not a rescaling. Price p25 is 700, so expect roughly a quarter to a third of ads to qualify.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "What a visitor shops for sets how often he returns. The cheap-goods browser makes many small, low-deliberation visits; the car-and-apartment buyer makes one long considered visit and then leaves for months. Averaged over the ads a user viewed, this splits those two populations, which is exactly the axis a future-visit-count target runs along.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "big_ticket_item",
+      "table": "AdsInfo",
+      "expression": "(Price > 1000000) * (Price < 100000000)",
+      "description": "Listing priced above 1,000,000 RUB -- cars, land and apartments -- with the junk upper tail excluded. The exclusion is necessary, not cosmetic: Price maxes out at 777,777,777,777, a repdigit sentinel, and the mean of 4.28e6 against a median of 4,450 shows that tail dominates the moments. Price p75 is 40,000, so expect a small single-digit to low-teens percentage.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "The complement of the cheap bucket, and not redundant with it because most of the catalogue sits in the middle. High-deliberation categories predict long gaps between visits, so a user whose viewing history concentrates here should be scored down on near-term visit frequency even if his current activity is heavy.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_is_placeholder",
+      "table": "AdsInfo",
+      "expression": "(Price == 0) + (Price > 100000000)",
+      "description": "The Price field on this row carries no usable number: either exactly 0 (price on request, giveaway, or simply left blank -- Price has only 63 true nulls in 5.96M rows, so the blank state had to be encoded as a value) or an absurd sentinel above 1e8, of which 777,777,777,777 is the observed maximum. The two conditions are mutually exclusive so the sum never exceeds 1. Share is uncertain from quartiles alone (p25=700 only bounds the zero rate below 25 percent); I expect a mean in the 0.0-0.1 range and flag this as the least certain of the nine.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Separates 'this ad has no price' from 'this ad is cheap', which every difference and ratio involving Price silently conflates -- a 0 behaves like the cheapest possible item under subtraction and blows up under division. Per-user it also reads as a behaviour: a visitor whose views concentrate on unpriced listings is hunting free and negotiable items, a distinct and unusually high-frequency browsing mode.",
+      "columns": [
+        "Price"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 9,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.3156705000000002,
+      "audit": {
+        "n_tool_calls": 13,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

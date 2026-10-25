@@ -1,0 +1,208 @@
+{
+  "dataset": "rel-amazon",
+  "task": "item-ltv",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 11,
+  "n_rounds": 1,
+  "cost_usd": 0.721,
+  "accepted": [
+    {
+      "name": "price_is_unpriced",
+      "table": "product",
+      "expression": "price <= 0",
+      "description": "Flags the 0.0 price sentinel: a catalogue row with no list price recorded, not a free item. Separates 'price unknown' from 'price low', which a model fed raw price cannot distinguish.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "item-ltv is dollars = price x future purchases, so a product whose price field is the missing-value sentinel has a structurally different (near-zero or uninformative) label scale; the raw column silently puts it at the bottom of the price axis instead.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_cents_ending",
+      "table": "product",
+      "expression": "100 * (price % 1)",
+      "description": "The cents part of the list price, 0-99. Not a rescaling of price: it is non-monotone in price and isolates the pricing convention (.99, .95, .00) from the price level.",
+      "units": "cents",
+      "expected_range": [
+        0.0,
+        100.0
+      ],
+      "why_it_matters": "price endings encode who set the price - consumer retail charm points vs publisher/wholesale round numbers - and only 8,679 distinct prices cover 506k products, so the ending is a real categorical signal about listing provenance and expected demand.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "charm_priced",
+      "table": "product",
+      "expression": "(price % 1) >= 0.9",
+      "description": "Charm (psychological) pricing flag: the price ends in .90-.99, i.e. the .99/.95 points typical of consumer retail listings.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "charm-priced items are actively merchandised to consumers and so attract the steady trickle of purchases that drives 3-month LTV; the median (12.99) and p25 (8.99) prices sit here, but p75 (17.59) does not, so the flag is not a monotone cut of price.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "round_dollar_priced",
+      "table": "product",
+      "expression": "((price % 1) == 0) * (price > 0)",
+      "description": "A real price that is a whole number of dollars. Whole-dollar listings in a book-like catalogue are typically wholesale, institutional or hand-entered rather than retail-merchandised; the (price > 0) term excludes the 0.0 missing sentinel, which is also integral.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "distinguishes a catalogue entry that was priced by a retail pricing rule from one that was not, a provenance difference that predicts whether the item sells continuously or sporadically - and it needs the sentinel exclusion, which no pairwise generator will add.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "high_ticket_item",
+      "table": "product",
+      "expression": "price >= 50",
+      "description": "High-ticket flag: list price at or above $50, roughly mean + 0.8 sd of a distribution whose p75 is 17.59.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "price has std 43 against mean 16 with a max of 5,204, so for a dollar-valued target a handful of expensive items dominate the loss; marking the tail membership explicitly is different information from the tail value itself.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_rating",
+      "table": "review",
+      "expression": "rating * verified",
+      "description": "The star rating kept only when the review came from a verified purchase, 0 otherwise. A trust-gated rating level.",
+      "units": "stars (0 = unverified)",
+      "expected_range": [
+        0.0,
+        5.0
+      ],
+      "why_it_matters": "only a verified review is evidence that money changed hands, which is exactly what LTV sums; an unverified 5-star is a marketing artifact. The brute-force generator tries rating - verified and rating / verified, never the product that implements the gate.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_sentiment",
+      "table": "review",
+      "expression": "(rating - 3) * verified",
+      "description": "Signed sentiment of a verified purchase: positive for 4-5 stars, negative for 1-2, zero for neutral and zero for every unverified review.",
+      "units": "stars above/below neutral",
+      "expected_range": [
+        -2.0,
+        2.0
+      ],
+      "why_it_matters": "collapses 'no credible opinion' and 'credible but neutral' onto the same zero while letting credible dissatisfaction push negative - the valence counterpart to verified_rating, which cannot go below zero.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "nps_contribution",
+      "table": "review",
+      "expression": "1.0 * (rating >= 4) - 1.0 * (rating <= 2)",
+      "description": "Net-Promoter-style contribution of one review: +1 promoter (4-5 stars), 0 passive (3 stars), -1 detractor (1-2 stars).",
+      "units": "promoter score units",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "ratings are a 1-5 ordinal label, not a measurement, and their distribution is pathological (mean 4.39, median 5, half the mass on 5); the promoter/detractor coding is the standard way practitioners turn that skew into a usable per-review quantity, and arithmetic differences on the raw label do not.",
+      "columns": [
+        "rating"
+      ],
+      "problems": []
+    },
+    {
+      "name": "verified_nps_contribution",
+      "table": "review",
+      "expression": "verified * (1.0 * (rating >= 4) - 1.0 * (rating <= 2))",
+      "description": "Promoter/detractor contribution counted only for verified purchases; unverified reviews contribute 0 instead of a vote.",
+      "units": "promoter score units",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "30% of reviews are unverified and those are where incentivized praise and retaliatory one-stars concentrate; this is the per-review term whose sum over a product's history is the credible word-of-mouth balance driving future purchases.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    },
+    {
+      "name": "rating_extremity",
+      "table": "review",
+      "expression": "abs(rating - 3)",
+      "description": "How far from neutral the rating is, ignoring direction: 0 for 3 stars, 1 for 2/4, 2 for 1/5. Opinion strength rather than opinion sign.",
+      "units": "stars from neutral",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "polarization and valence are different properties of a product's review stream - a contested item and a blandly-liked item can share a mean rating - and no difference or ratio of raw columns recovers the folded distance.",
+      "columns": [
+        "rating"
+      ],
+      "problems": []
+    },
+    {
+      "name": "unverified_extreme_review",
+      "table": "review",
+      "expression": "(verified == 0) * (abs(rating - 3) >= 2)",
+      "description": "The fake/incentivized-review signature: a 1-star or 5-star rating with no verified purchase behind it.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "the conjunction is the heuristic practitioners actually use to discount a review stream; either condition alone is common and uninformative (69.5% verified, ~half of all ratings are 5), so the signal exists only in the product of the two, which requires knowing that verified is a provenance flag and rating is an ordinal label.",
+      "columns": [
+        "rating",
+        "verified"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 11,
+      "n_accepted": 11,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 0.7209785,
+      "audit": {
+        "n_tool_calls": 3,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

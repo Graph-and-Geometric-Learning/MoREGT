@@ -1,0 +1,216 @@
+{
+  "dataset": "rel-hm",
+  "task": "user-churn",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 2,
+  "cost_usd": 1.563,
+  "accepted": [
+    {
+      "name": "channel2_line_spend",
+      "table": "transactions",
+      "expression": "price * (sales_channel_id == 2)",
+      "description": "The spend on this purchase line attributed to sales channel 2 (71.7% of lines), and zero for channel-1 lines. Summed over a customer's history it is that customer's channel-2 revenue; together with the channel-1 counterpart it decomposes total spend by channel, which a plain sum of price cannot do. Channel semantics (store vs online) are not recoverable from this database, so the name stays agnostic.",
+      "units": "scaled price units (x590 gives the retail currency amount)",
+      "expected_range": [
+        0.0,
+        0.51
+      ],
+      "why_it_matters": "Channel mix is a first-order churn covariate in retail: a customer whose revenue sits entirely in one channel behaves differently from a mixed-channel one. Price alone is channel-blind and sales_channel_id alone is amount-blind.",
+      "columns": [
+        "price",
+        "sales_channel_id"
+      ],
+      "problems": []
+    },
+    {
+      "name": "channel1_line_spend",
+      "table": "transactions",
+      "expression": "price * (sales_channel_id == 1)",
+      "description": "The complement of channel2_line_spend: spend on this line if it went through sales channel 1 (28.3% of lines), else zero. The pair is a revenue decomposition, not a duplicate of either input; their aggregated ratio is the customer's channel-revenue share.",
+      "units": "scaled price units (x590 gives the retail currency amount)",
+      "expected_range": [
+        0.0,
+        0.51
+      ],
+      "why_it_matters": "Gives the minority-channel half of the spend split, so a model can form channel-revenue share by aggregation. Minority-channel-only buyers are a distinct, typically higher-churn segment.",
+      "columns": [
+        "price",
+        "sales_channel_id"
+      ],
+      "problems": []
+    },
+    {
+      "name": "premium_price_surplus",
+      "table": "transactions",
+      "expression": "maximum(price - 0.0254067796610169, 0.0)",
+      "description": "How far above the catalogue median unit price (0.02541 scaled, 14.99 in currency) this line sits; zero for every line at or below the median. Not a rescaling of price: it is a one-sided hinge, so it is flat over the whole bottom half of the price distribution and only measures the premium tail. Summed over a customer it is their trade-up surplus; averaged it is how far above mainstream they shop.",
+      "units": "scaled price units above the median line (x590 for currency)",
+      "expected_range": [
+        0.0,
+        0.49
+      ],
+      "why_it_matters": "Trade-up versus mainstream shopping separates committed customers from the price-led tail, and a linear price feature cannot express the asymmetry: the same mean price can come from all-mid-market or from a barbell of bargains plus a few premium items.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "bargain_depth",
+      "table": "transactions",
+      "expression": "maximum(0.0169322033898305 - price, 0.0)",
+      "description": "How far below the lower-quartile unit price (0.016932 scaled, 9.99 in currency) this line sits, and zero for the upper three quarters of lines. The downward mirror of premium_price_surplus, deliberately a separate quantity rather than its negation because the hinge discards the other side. Aggregated, it measures spend concentrated in the bargain bin. Roughly 75% of rows should be exactly zero and the non-zero values are tightly bounded, since the cheapest line in the database is 0.000169.",
+      "units": "scaled price units below the Q1 price point (x590 for currency)",
+      "expected_range": [
+        0.0,
+        0.017
+      ],
+      "why_it_matters": "Discount-only shoppers are the canonical churn-prone cohort in fashion retail; they are invisible in mean price (which they share with a mixed shopper) but obvious in depth-below-Q1 once aggregated.",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "premium_channel2_line",
+      "table": "transactions",
+      "expression": "(sales_channel_id == 2) * (price > 0.0338813559322033) * 1.0",
+      "description": "Indicator that this line is both a channel-2 purchase and above the upper-quartile unit price (0.033881 scaled, 19.99 in currency), i.e. a high-value purchase in the dominant channel. Aggregated it is a count, which is information neither channel2_line_spend (an amount) nor premium_price_surplus (channel-blind) yields after summation. The exact rate depends on the joint distribution of channel and price, which these tools do not expose, so I expect a minority of rows to fire -- plausibly 10-25%.",
+      "units": "indicator (0 or 1); counts lines once aggregated",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A count of high-value purchases in a specific channel is the frequency leg of an RFM description, conditioned on where the money was spent -- the combination of 'how often' and 'how big' and 'where' that churn models actually want.",
+      "columns": [
+        "price",
+        "sales_channel_id"
+      ],
+      "problems": []
+    },
+    {
+      "name": "contact_flags_set",
+      "table": "customer",
+      "expression": "(FN > 0) * 1.0 + (Active > 0) * 1.0",
+      "description": "How many of the two account flags, FN and Active, are set (0, 1 or 2). Both columns are set-or-missing: the only non-null value either takes is 1.0, with FN set on 34.8% of accounts and Active on 33.8%. The comparison is the point -- it reads null as absent, which is the correct semantics, whereas a mean-imputed or embedded null destroys the signal. The two flags are near-duplicates of each other by marginal count but not identical, so the sum is an engagement depth, not a rescaling of either. Expect roughly two thirds of accounts at 0.",
+      "units": "count of flags set (0-2)",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "A marketing/activity engagement depth on the only table that describes the customer. customer has no signup date and no behavioural column, so these flags plus age are the whole cold-start profile, and the flag count is the one ordered quantity they can form.",
+      "columns": [
+        "Active",
+        "FN"
+      ],
+      "problems": []
+    },
+    {
+      "name": "subscribed_not_active",
+      "table": "customer",
+      "expression": "(FN > 0) * (1.0 - (Active > 0) * 1.0)",
+      "description": "Indicator for the account that carries the FN flag (most likely a fashion-news opt-in, which matches the 478,258 Regularly/Monthly subscribers to within 1,328 rows) but NOT the Active flag: still on the mailing list, no longer marked active. The two flags overlap heavily, so the marginals bound this at no more than 34.8% of accounts and the true rate is likely far smaller; I cannot measure the joint with these tools.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Names the directional half of the flag disagreement that points at churn -- subscribed but inactive is a lapsing account, while the reverse is a new or quiet one. contact_flags_set scores both identically at 1, so this is not recoverable from it.",
+      "columns": [
+        "Active",
+        "FN"
+      ],
+      "problems": []
+    },
+    {
+      "name": "age_deviation_from_median",
+      "table": "customer",
+      "expression": "abs(age - 32.0)",
+      "description": "Absolute distance in years from the median customer age of 32. Age spans every integer from 16 to 99 (hard floor and ceiling, 1.16% null), with p25 24 and p75 49, so the distribution is young-skewed with a long upper tail; the folded distance is around 8-12 for a typical customer and reaches 67 at the 99-year ceiling. Deliberately non-monotone in age, so it is not a rescaling: a 20-year-old and a 44-year-old receive the same value.",
+      "units": "years",
+      "expected_range": [
+        0.0,
+        67.0
+      ],
+      "why_it_matters": "Retention is U-shaped in age -- the youngest fast-fashion cohort and the oldest tail both churn more than the core -- and a linear age feature cannot represent a U. Age is the only continuous attribute customer has, so making its shape expressible matters more here than it would on a richer entity table.",
+      "columns": [
+        "age"
+      ],
+      "problems": []
+    },
+    {
+      "name": "taxonomy_sentinel_count",
+      "table": "article",
+      "expression": "(product_type_no < 0) * 1.0 + (graphical_appearance_no < 0) * 1.0 + (colour_group_code < 0) * 1.0 + (perceived_colour_value_id < 0) * 1.0 + (perceived_colour_master_id < 0) * 1.0",
+      "description": "How many of the article's five coded taxonomy attributes carry the -1 unknown sentinel rather than a real code: product_type_no (121 rows), graphical_appearance_no (52), colour_group_code (28), perceived_colour_value_id (28), perceived_colour_master_id (685). Negativity is the sentinel test -- none of these taxonomies has a legitimate negative code -- so the count is an incompleteness score, 0 to 5. It is genuinely sparse: at most ~0.8% of the 105,542 articles score above zero and the mean should be near 0.001, with the 28 doubly-missing colour rows reaching 3.",
+      "units": "count of missing taxonomy codes (0-5)",
+      "expected_range": [
+        0.0,
+        5.0
+      ],
+      "why_it_matters": "Collapses five sentinel conventions into one honest data-quality quantity, and it is the one thing on article that arithmetic can mean: every other code there is a label, so subtracting or ratioing them -- which the brute-force generator will do -- is nonsense. Incompletely catalogued articles are typically odd or newly loaded stock, a basket-composition signal rather than a strong churn driver, and I am claiming it as the former.",
+      "columns": [
+        "colour_group_code",
+        "graphical_appearance_no",
+        "perceived_colour_master_id",
+        "perceived_colour_value_id",
+        "product_type_no"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 10,
+      "n_accepted": 9,
+      "n_rejected": 1,
+      "is_error": false,
+      "cost_usd": 0.9198755,
+      "audit": {
+        "n_tool_calls": 7,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": [
+        {
+          "name": "active_not_subscribed",
+          "table": "customer",
+          "expression": "(Active > 0) * (1.0 - (FN > 0) * 1.0)",
+          "description": "The opposite segment: flagged Active but without the FN opt-in -- an account the retailer treats as live that has not taken the marketing subscription. Bounded above by Active's 33.8% set rate and, given the heavy overlap with FN, expected to fire on a small minority.",
+          "units": "indicator (0 or 1)",
+          "expected_range": [
+            0.0,
+            1.0
+          ],
+          "why_it_matters": "Completes the flag decomposition with the opposite sign, so a model can tell 'engaged but unsubscribed' from 'subscribed but lapsed' rather than seeing one undifferentiated 'exactly one flag' bucket.",
+          "columns": [
+            "Active",
+            "FN"
+          ],
+          "problems": [
+            "constant, so it carries nothing"
+          ]
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "n_proposed": 0,
+      "n_accepted": 0,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 0.643124,
+      "audit": {
+        "n_tool_calls": 5,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

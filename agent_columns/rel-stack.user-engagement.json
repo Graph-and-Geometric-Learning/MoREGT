@@ -1,0 +1,205 @@
+{
+  "dataset": "rel-stack",
+  "task": "user-engagement",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 11,
+  "n_rounds": 1,
+  "cost_usd": 1.1424,
+  "accepted": [
+    {
+      "name": "score_delta",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 2) - 1 * (VoteTypeId == 3)",
+      "description": "Signed score contribution of this vote: +1 for an up-vote (VoteTypeId 2), -1 for a down-vote (VoteTypeId 3), 0 for every other vote type (accept, favorite, close, delete, flag, moderator review, edit approval). Turns a type label into the signed quantity the platform actually accumulates.",
+      "units": "score points",
+      "expected_range": [
+        -1.0,
+        1.0
+      ],
+      "why_it_matters": "VoteTypeId is a nominal code, so every pairwise difference or ratio a brute-force generator builds from it is nonsense. Only codes 2 and 3 are scoring events, and they are opposite in sign; collapsing the other twelve codes to 0 and signing these two gives the net score a post is receiving in a window. Expected mean is positive and large (median and 75th percentile of VoteTypeId are both 2, so up-votes are 55-72% of rows and down-votes a few percent), so the mean should land around +0.5 to +0.7.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "vote_reputation_weight",
+      "table": "votes",
+      "expression": "15 * (VoteTypeId == 1) + 10 * (VoteTypeId == 2) - 2 * (VoteTypeId == 3)",
+      "description": "Reputation delivered to the voted post's author by this one vote, under the Stack Exchange reputation schedule: +15 for an answer being accepted (code 1), +10 for an up-vote (code 2), -2 for a down-vote (code 3), 0 for non-reputation vote types. Distinct from score_delta: that one is direction, this one is magnitude.",
+      "units": "reputation points",
+      "expected_range": [
+        -2.0,
+        15.0
+      ],
+      "why_it_matters": "The three scoring codes are not interchangeable - an accept is worth more than an up-vote, and a down-vote costs far less than an up-vote gains. Weighting them reproduces the asymmetry that drives who keeps participating. Stated assumption and its limit: +10 is the answer up-vote rate; an up-vote on a question is only +5, and the votes table cannot tell the two apart, so this column is an upper bound on reputation for question votes. Expected mean roughly +4 to +11.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_quality_mark_vote",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 1) + 1 * (VoteTypeId == 5)",
+      "description": "This vote marks the post as personally useful without changing its score: an accept (code 1) or a favorite/bookmark (code 5).",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Accepts and bookmarks are the 'this solved my problem' acts, and they are the ones tied to a specific person returning to a specific thread - a different behaviour from scoring. Separating them from the scoring codes keeps a count of them from being diluted by up-votes. Expected rate 0.10-0.35 of vote rows (VoteTypeId's 25th percentile is 2, bounding accepts at <=25%).",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_negative_signal_vote",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId == 3) + 1 * (VoteTypeId == 4) + 1 * (VoteTypeId == 12)",
+      "description": "This vote says the content is bad: a down-vote (3), an offensive flag (4) or a spam flag (12).",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Three codes scattered across the range share one meaning, which no monotone transform of VoteTypeId can express. A user whose votes skew negative is a critic/flagger, a persistence pattern quite unlike an up-voter's. Expected rate 0.02-0.15.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_privileged_lifecycle_vote",
+      "table": "votes",
+      "expression": "1 * (VoteTypeId >= 6) * (VoteTypeId <= 7) + 1 * (VoteTypeId >= 10) * (VoteTypeId <= 11)",
+      "description": "A vote that changes a post's lifecycle rather than its score: close (6), reopen (7), delete (10), undelete (11). These require earned privileges, so casting one identifies a high-reputation participant.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Engagement is not one behaviour: a user who closes and deletes posts has crossed reputation thresholds and is structurally far more likely to come back than a one-time asker. The privileged codes form two disjoint bands, so the quantity needs a union, not a threshold. Expected rate 0.02-0.20.",
+      "columns": [
+        "VoteTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_original_authoring",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId >= 1) * (PostHistoryTypeId <= 3)",
+      "description": "This revision row is the post's own creation - initial title (1), initial body (2) or initial tags (3) - rather than any later change to it.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "postHistory mixes authoring, curation and system bookkeeping in one 30-value code column, so a raw count of a user's postHistory rows conflates writing a post with tweaking somebody else's tags. This band isolates content creation. The profile pins the rate: median PostHistoryTypeId is 3 and the 75th percentile is 5, so expect 0.50-0.75.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_curation_edit",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId >= 4) * (PostHistoryTypeId <= 9)",
+      "description": "This revision is an edit or a rollback of an existing post's title, body or tags (codes 4-6 edits, 7-9 rollbacks) - housekeeping on content that already exists.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Editors are the most habitual class of contributor on a Q&A site: editing is low-effort, repeatable and uncoupled from having a question to ask, so a user whose history is edit-heavy is the archetype of continued engagement. Expected rate 0.15-0.40.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_lifecycle_moderation",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId >= 10) * (PostHistoryTypeId <= 25)",
+      "description": "This revision records a privileged lifecycle action on the post: closed/reopened (10-11), deleted/undeleted (12-13), locked/unlocked (14-15), made community-owned (16), migrated (17), merged (18, 22), protected/unprotected (19-20), disassociated (21), suggested edit applied (24), vote nullification (25).",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Same reason as the privileged vote band but on a different relation, and it reaches users who moderate without voting. Expected rate 0.01-0.15.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_automated_event",
+      "table": "postHistory",
+      "expression": "1 * (PostHistoryTypeId >= 33)",
+      "description": "This revision row was generated by the system, not typed by a person: post notices added/removed (33-34), migration records (35-36), merge source/destination bookkeeping (37-38), community bumps (50) and the higher codes up to 66.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "This is a negative control, and the most useful of the four bands. A community bump or a migration record attributes a postHistory row to a user who did nothing, so counting raw history rows inflates the apparent activity of dormant accounts - exactly the accounts user-engagement has to call inactive. The profile says this tail is real and not negligible: mean 6.66 with std 10.97 against a 75th percentile of 5 requires mass far above 33. Expected rate 0.02-0.15.",
+      "columns": [
+        "PostHistoryTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_answer",
+      "table": "posts",
+      "expression": "1 * (PostTypeId == 2)",
+      "description": "This post is an answer (PostTypeId 2) rather than a question (1) or one of the tag-wiki / wiki-excerpt / moderator-nomination / placeholder types (3-7).",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Not a rescaling: PostTypeId is a nominal label with seven values whose numeric order means nothing, and the one split that matters behaviourally is answering versus asking. Askers arrive with a problem and leave once it is solved; answerers come back because the supply of questions never runs out. Expected rate 0.45-0.52 (PostTypeId mean 1.514, median 1, 75th percentile 2, so questions and answers are near-balanced and types 3-7 are under 1%).",
+      "columns": [
+        "PostTypeId"
+      ],
+      "problems": []
+    },
+    {
+      "name": "badge_difficulty",
+      "table": "badges",
+      "expression": "(4 - Class) + 2 * TagBased",
+      "description": "Ordinal difficulty of the badge earned: bronze site-wide 1, silver 2, gold 3, with +2 for a tag-based badge because a tag badge at a given tier demands far more sustained answering concentrated in a single topic than the site-wide badge of the same tier.",
+      "units": "ordinal difficulty rank (1 = easiest, 5 = hardest)",
+      "expected_range": [
+        1.0,
+        5.0
+      ],
+      "why_it_matters": "Class alone runs the wrong way (3 is the common low tier) and, more importantly, is not comparable across the TagBased split - a bronze tag badge is harder-won than a bronze site-wide badge, so the two columns must be read together or the tier is misleading. The +2 weight is my judgement call, stated as such. Values are confined to {1,2,3,4,5} and the mean should sit near 1.18, since Class averages 2.826 and only 0.37% of rows are TagBased.",
+      "columns": [
+        "Class",
+        "TagBased"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 11,
+      "n_accepted": 11,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.1424185,
+      "audit": {
+        "n_tool_calls": 10,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

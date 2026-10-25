@@ -1,0 +1,181 @@
+{
+  "dataset": "rel-hm",
+  "task": "item-sales",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 9,
+  "n_rounds": 1,
+  "cost_usd": 1.1894,
+  "accepted": [
+    {
+      "name": "online_revenue",
+      "table": "transactions",
+      "expression": "price * (sales_channel_id - 1)",
+      "description": "The money on this line if it went through sales channel 2, otherwise zero. Summed over an article it is that article's channel-2 revenue; paired with offline_revenue it recovers the channel mix of its sales, which the plain sum of price destroys.",
+      "units": "scaled price units (x590 ~ local currency)",
+      "expected_range": [
+        0.0,
+        0.51
+      ],
+      "why_it_matters": "item-sales is a sum of price; channel 2 is 71.7% of rows but the split is per-article, and an article selling only through one channel responds differently to the next week's demand than one selling through both",
+      "columns": [
+        "price",
+        "sales_channel_id"
+      ],
+      "problems": []
+    },
+    {
+      "name": "offline_revenue",
+      "table": "transactions",
+      "expression": "price * (2 - sales_channel_id)",
+      "description": "The money on this line if it went through sales channel 1, otherwise zero. The complement of online_revenue; the two sum back to price exactly.",
+      "units": "scaled price units (x590 ~ local currency)",
+      "expected_range": [
+        0.0,
+        0.51
+      ],
+      "why_it_matters": "channel 1 is the minority channel (28.3%) and articles concentrated in it are a distinct merchandising population; a brute-force price/sales_channel_id ratio does not isolate it",
+      "columns": [
+        "price",
+        "sales_channel_id"
+      ],
+      "problems": []
+    },
+    {
+      "name": "price_point_ending",
+      "table": "transactions",
+      "expression": "(price * 590) % 1",
+      "description": "The sub-unit (cents) part of the recovered retail price. price is the true price divided by 590 -- its quantiles times 590 land on 0.10, 9.99, 14.99, 19.99 and 299.00 -- so this isolates the price-point ending: ~0.99 for the standard retail ladder, ~0.00 for round prices (entry lines and high-ticket round figures).",
+      "units": "fractional currency units",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "the same article is transacted at different prices as it is discounted, and the ending digit is the only within-row signal of where on the price ladder a line sits; it is non-monotone in price, so no pairwise ratio reproduces it",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "off_ladder_revenue",
+      "table": "transactions",
+      "expression": "price * (((price * 590) % 1) < 0.9)",
+      "description": "Revenue booked at a price that is NOT on the standard .9x ladder -- round-number prices, which in this catalogue are the entry-price lines and the high-ticket round figures. Zero on ordinary .99 lines.",
+      "units": "scaled price units (x590 ~ local currency)",
+      "expected_range": [
+        0.0,
+        0.51
+      ],
+      "why_it_matters": "aggregated over an article this is the money-weighted share of its revenue coming from off-ladder pricing -- a markdown/promotion proxy, and markdown state is the main thing that moves next-week unit volume",
+      "columns": [
+        "price"
+      ],
+      "problems": []
+    },
+    {
+      "name": "catalogue_metadata_gaps",
+      "table": "article",
+      "expression": "(product_type_no == -1) + (graphical_appearance_no == -1) + (colour_group_code == -1) + (perceived_colour_master_id == -1)",
+      "description": "How many of the article's four sentinel-bearing attribute codes are the -1 unknown marker. Counts product_type (121 rows), graphical_appearance (52), colour_group (28) and perceived_colour_master (685); perceived_colour_value is excluded because it is -1 on exactly the same 28 rows as colour_group and would double-count. Expect 0 on ~99.2% of rows.",
+      "units": "count of unknown attribute codes",
+      "expected_range": [
+        0.0,
+        4.0
+      ],
+      "why_it_matters": "one scalar for how incompletely an article is catalogued -- thinly-described SKUs are fringe, short-lived, low-volume lines; it also collapses four -1 sentinels that any numeric encoder would otherwise read as a magnitude",
+      "columns": [
+        "colour_group_code",
+        "graphical_appearance_no",
+        "perceived_colour_master_id",
+        "product_type_no"
+      ],
+      "problems": []
+    },
+    {
+      "name": "plain_dark_staple",
+      "table": "article",
+      "expression": "(graphical_appearance_no == 1010016) * (perceived_colour_value_id == 4)",
+      "description": "The wardrobe-basic archetype: solid (unpatterned) surface AND dark perceived tone. Code 1010016 is Solid and tone code 4 is Dark, both identified by matching per-value counts against the quantiles. Solid is 47% of the catalogue and Dark 40.5%, so expect this on roughly 15-30% of articles.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "black/plain basics are the high-volume, low-seasonality end of a fashion catalogue; neither column alone says 'staple', and subtracting or dividing these two nominal codes is meaningless",
+      "columns": [
+        "graphical_appearance_no",
+        "perceived_colour_value_id"
+      ],
+      "problems": []
+    },
+    {
+      "name": "plain_childrenswear",
+      "table": "article",
+      "expression": "(index_group_no == 4) * (graphical_appearance_no == 1010016)",
+      "description": "A solid-pattern article in the Baby/Children division. index_group_no == 4 is Baby/Children (34,711 articles): that code assignment is the one that reproduces the column mean 3.1715 and all three quartiles. Baby/Children is 32.9% of the catalogue and Solid 47%, so expect ~10-20%.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "plain kidswear is the multipack, replenishment end of the range -- high unit volume at low unit price, so its revenue profile differs sharply from both patterned kidswear and plain adultwear",
+      "columns": [
+        "graphical_appearance_no",
+        "index_group_no"
+      ],
+      "problems": []
+    },
+    {
+      "name": "marketing_engagement_flags",
+      "table": "customer",
+      "expression": "(FN == 1) + (Active == 1)",
+      "description": "How many of the two set-or-missing account flags are set, 0 to 2. Both columns hold only 1.0 or null, so all their information is in their null-ness; the == 1 test reads null as 0, which is the correct reading. FN is set on 34.8% of accounts and Active on 33.9%, so expect a mean near 0.7 with all three levels populated.",
+      "units": "count of flags set",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "aggregated over an article's buyers this says whether its demand comes from marketing-reachable, campaign-responsive accounts or from walk-in traffic; a brute-force FN - Active or FN / Active is all-null garbage because NaN propagates",
+      "columns": [
+        "Active",
+        "FN"
+      ],
+      "problems": []
+    },
+    {
+      "name": "young_engaged_shopper",
+      "table": "customer",
+      "expression": "(age <= 25) * (FN == 1)",
+      "description": "A shopper in the youngest quartile of the customer base (p25 of age is 24) who is also opted in to fashion-news marketing. Age nulls (1.16%) fall to 0, as does an unset FN. Expect roughly 8-13% of accounts.",
+      "units": "indicator (0 or 1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "the trend-responsive cohort; an article whose buyers are concentrated here sells on campaign and novelty rather than replenishment, which changes how its past sales extrapolate to next week",
+      "columns": [
+        "FN",
+        "age"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 9,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 1.189447,
+      "audit": {
+        "n_tool_calls": 7,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

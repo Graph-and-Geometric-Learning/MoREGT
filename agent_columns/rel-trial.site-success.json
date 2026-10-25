@@ -1,0 +1,380 @@
+{
+  "dataset": "rel-trial",
+  "task": "site-success",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 12,
+  "n_rounds": 3,
+  "cost_usd": 2.5972,
+  "accepted": [
+    {
+      "name": "ci_excludes_zero",
+      "table": "outcome_analyses",
+      "expression": "(ci_lower_limit > 0) + (ci_upper_limit < 0)",
+      "description": "Whether the reported confidence interval lies entirely on one side of zero, i.e. the analysis is significant by the interval for a difference-type estimate (mean difference, change from baseline, risk difference).",
+      "units": "indicator (0/1; 2 only if the limits are stored out of order)",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "Covers the ~18% of analyses with no p_value at all, where the interval is the only evidence recorded. Knowing that zero -- not any other number -- is the null value for a difference is exactly the domain fact a pairwise-difference generator cannot have. Rows with a null CI evaluate to 0, which is a genuine limitation: absent is not the same as covering zero.",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ci_excludes_unity",
+      "table": "outcome_analyses",
+      "expression": "(ci_lower_limit > 1.0) + (ci_upper_limit < 1.0)",
+      "description": "The ratio-scale twin of the previous column: whether the interval excludes 1, the null value for an odds ratio, risk ratio, hazard ratio or rate ratio.",
+      "units": "indicator (0/1; 2 only if the limits are stored out of order)",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "param_type is free text with 5,251 variants, so a model cannot reliably tell a difference from a ratio; supplying both null-value tests lets it learn which one is informative per context. Testing an interval against 1 is nonsense for a difference and decisive for a ratio -- the whole point is that the constant encodes what the column IS.",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ci_contains_estimate",
+      "table": "outcome_analyses",
+      "expression": "(param_value >= ci_lower_limit) * (param_value <= ci_upper_limit)",
+      "description": "Whether the reported point estimate actually falls inside its own reported confidence interval. A well-formed analysis always satisfies this; a 0 means the row was mis-entered, mis-parsed, or the three numbers refer to different quantities.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "A validity check, not an effect measure. Registries are self-reported and this table has ci_upper_limit values of 999999999 and ci_lower_limit of -1395694, so some fraction of rows are junk. Sites whose submissions are internally inconsistent are sites with weak data management, which predicts failure to hit endpoints. Everything the brute-force generator computes from those rows is noise; this column says which rows they are.",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit",
+        "param_value"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ae_incidence_smoothed",
+      "table": "reported_event_totals",
+      "expression": "minimum((subjects_affected + 0.5) / (subjects_at_risk + 1.0), 2.0)",
+      "description": "Jeffreys-smoothed incidence of the reported adverse event: the fraction of at-risk participants who experienced it, with the 0.5/1 prior that keeps the quantity finite and stable when the arm is small or empty. Capped at 2, a value reached only by impossible rows where affected exceeds at-risk.",
+      "units": "fraction of participants (0-1 for well-formed rows)",
+      "expected_range": [
+        0.0,
+        2.0
+      ],
+      "why_it_matters": "The raw ratio is undefined for the rows with subjects_at_risk = 0 and wildly unstable for the quartile of rows with fewer than 10 at risk -- a single event in a 2-person arm reads as a 50% incidence. The smoothed form is what an epidemiologist would actually compute, and adverse-event burden is the mechanism by which trials at a site stop early without a result.",
+      "columns": [
+        "subjects_affected",
+        "subjects_at_risk"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ae_log_odds",
+      "table": "reported_event_totals",
+      "expression": "log((subjects_affected + 0.5) / (maximum(subjects_at_risk - subjects_affected, 0.0) + 0.5))",
+      "description": "Haldane-Anscombe corrected log-odds of the reported adverse event: log(affected / unaffected) with the standard 0.5 continuity correction applied to both cells, so zero-event and all-event arms remain finite.",
+      "units": "log-odds",
+      "expected_range": [
+        -16.0,
+        12.0
+      ],
+      "why_it_matters": "Log-odds is the scale on which event rates from arms of very different sizes are comparable and on which safety signals are conventionally pooled; a rate of 0.001 vs 0.01 is a full unit apart here but nearly indistinguishable as a raw fraction. The 0.5 correction is the standard fix for the median row, where subjects_affected is 1.",
+      "columns": [
+        "subjects_affected",
+        "subjects_at_risk"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ae_report_precision",
+      "table": "reported_event_totals",
+      "expression": "sqrt(minimum((subjects_affected + 0.5) / (subjects_at_risk + 1.0), 1.0) * (1.0 - minimum((subjects_affected + 0.5) / (subjects_at_risk + 1.0), 1.0)) / (subjects_at_risk + 1.0))",
+      "description": "Binomial standard error of the smoothed incidence above: sqrt(p(1-p)/n). How much the reported safety rate could move if the same arm were run again.",
+      "units": "fraction of participants (standard error)",
+      "expected_range": [
+        0.0,
+        0.5
+      ],
+      "why_it_matters": "Turns a rate into a rate-plus-its-uncertainty. It is largest exactly where the reported incidence is least trustworthy -- mid-range rates in small arms -- and near zero for the large well-powered arms, letting a model discount a scary-looking 50% incidence that came from four people.",
+      "columns": [
+        "subjects_affected",
+        "subjects_at_risk"
+      ],
+      "problems": []
+    },
+    {
+      "name": "mdes_per_arm",
+      "table": "studies",
+      "expression": "3.96 / sqrt(maximum(enrollment, 1.0) / maximum(number_of_arms, 1.0))",
+      "description": "Minimum detectable effect size: the smallest standardised effect (Cohen's d) this trial could detect at 80% power and a two-sided 0.05 test, given its enrollment split evenly across arms. Formula d = (z_0.975 + z_0.80) * sqrt(2/n_per_arm) = 3.96/sqrt(n_per_arm).",
+      "units": "Cohen's d (standardised effect size)",
+      "expected_range": [
+        0.0,
+        30.0
+      ],
+      "why_it_matters": "This is the quantity a statistician computes before agreeing to run a trial, and it says what the trial is capable of finding rather than how big it is. The median study (60 participants, 2 arms) gets d = 0.72 -- it can only detect a large effect -- while a 1,000-person trial gets 0.18. A site whose portfolio is structurally unable to detect realistic effects will have a low success rate regardless of the science. Null wherever number_of_arms is null (24% of studies, mostly observational).",
+      "columns": [
+        "enrollment",
+        "number_of_arms"
+      ],
+      "problems": []
+    },
+    {
+      "name": "is_underpowered_comparative",
+      "table": "studies",
+      "expression": "(number_of_arms >= 2) * (enrollment < 30 * number_of_arms)",
+      "description": "Flags a study that has a comparison group yet enrolls fewer than 30 participants per arm -- below the conventional rule-of-thumb floor at which normal-approximation inference on a between-arm comparison is taken seriously.",
+      "units": "indicator (0/1)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "Being small is only a defect if you are trying to compare something: a 12-person single-arm pharmacokinetics study is fine, a 12-person two-arm efficacy trial is not. The flag depends on both columns jointly with a domain constant, which is precisely the distinction any pairwise ratio of enrollment and number_of_arms throws away. Given a median enrollment of 60, this fires on a large and genuinely distinguishable minority.",
+      "columns": [
+        "enrollment",
+        "number_of_arms"
+      ],
+      "problems": []
+    },
+    {
+      "name": "effect_to_dispersion",
+      "table": "outcome_analyses",
+      "expression": "abs(param_value) / maximum(abs(param_value) + abs(dispersion_value), 1e-6)",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "dispersion_value",
+        "param_value"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ci_excludes_zero",
+      "table": "outcome_analyses",
+      "expression": "1.0 * (ci_lower_limit * ci_upper_limit > 0.0)",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit"
+      ],
+      "problems": []
+    },
+    {
+      "name": "estimate_outside_ci",
+      "table": "outcome_analyses",
+      "expression": "maximum(1.0 * (param_value < ci_lower_limit), 1.0 * (param_value > ci_upper_limit))",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit",
+        "param_value"
+      ],
+      "problems": []
+    },
+    {
+      "name": "ci_width_vs_reported_se",
+      "table": "outcome_analyses",
+      "expression": "maximum(minimum((ci_upper_limit - ci_lower_limit) / maximum(3.92 * abs(dispersion_value), 1e-6), 10.0), -10.0)",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit",
+        "dispersion_value"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 12,
+      "n_accepted": 8,
+      "n_rejected": 4,
+      "is_error": false,
+      "cost_usd": 1.2304380000000001,
+      "audit": {
+        "n_tool_calls": 14,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": [
+        {
+          "name": "analysis_is_significant",
+          "table": "outcome_analyses",
+          "expression": "p_value < 0.05",
+          "description": "Whether this reported statistical analysis cleared the conventional two-sided 0.05 significance threshold. A p-value is a measurement whose meaning is entirely defined by its comparison to a convention; the number itself is not the quantity anyone uses.",
+          "units": "indicator (0/1)",
+          "expected_range": [
+            0.0,
+            1.0
+          ],
+          "why_it_matters": "This is the atom of trial success. A site's success rate is essentially the fraction of its past analyses that landed on the right side of 0.05, so a per-analysis significance flag on rows the site has already accumulated is the single most direct predictor available. Nulls (18% of rows) and the 19 negative p-values both evaluate to 0.",
+          "columns": [
+            "p_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `method_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "evidence_strength",
+          "table": "outcome_analyses",
+          "expression": "log(1.0 / maximum(p_value, 1e-10))",
+          "description": "Negative log p-value in nats: the strength of evidence against the null, on the scale where evidence adds up. Floored at p=1e-10 so exact zeros and the 19 negative values do not produce infinities.",
+          "units": "nats of evidence (-log p)",
+          "expected_range": [
+            -9.0,
+            24.0
+          ],
+          "why_it_matters": "p=0.049 and p=0.0001 are the same success under a threshold but very different science. The log scale is the one on which p-values from independent analyses are comparable and combinable, so it separates a site that scrapes past 0.05 from one that produces decisive results. Values below 0 come from the dirty rows where p_value exceeds 1.",
+          "columns": [
+            "p_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `method` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "estimate_imprecision",
+          "table": "outcome_analyses",
+          "expression": "log1p(maximum(ci_upper_limit - ci_lower_limit, 0.0) / maximum(abs(param_value), 1e-6))",
+          "description": "Confidence-interval width expressed as a multiple of the effect size it brackets, log-compressed. A dimensionless coefficient-of-variation for the reported estimate: 0 means the interval is a point, ~0.7 means the interval is about as wide as the effect, large values mean the study measured essentially nothing.",
+          "units": "dimensionless (log of relative CI width)",
+          "expected_range": [
+            0.0,
+            40.0
+          ],
+          "why_it_matters": "The raw CI width is meaningless without knowing the scale of the effect -- a width of 5 is tight for a blood-pressure change in mmHg and hopeless for an odds ratio. Dividing by the estimate is what makes width comparable across the 5,251 distinct param_types in this table, and imprecise sites are sites that will miss their endpoints next year.",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit",
+            "param_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "z_from_ci",
+          "table": "outcome_analyses",
+          "expression": "maximum(minimum(1.96 * (ci_lower_limit + ci_upper_limit) / maximum(ci_upper_limit - ci_lower_limit, 1e-6), 50.0), -50.0)",
+          "description": "The z-statistic reconstructed from a reported confidence interval: 2 x midpoint divided by the implied standard error (width/3.92). Winsorised at +/-50 because some rows report a zero-width interval.",
+          "units": "standard deviations (z)",
+          "expected_range": [
+            -50.0,
+            50.0
+          ],
+          "why_it_matters": "It recovers the test statistic on the 63% of rows that carry an interval, including many where p_value is missing, and it is signed -- so it distinguishes an effect that favours the treatment from one that favours the control, which a p-value cannot. It is a ratio of a sum to a difference of two columns, which no pairwise generator produces.",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "n_proposed": 4,
+      "n_accepted": 1,
+      "n_rejected": 3,
+      "is_error": false,
+      "cost_usd": 0.6876515,
+      "audit": {
+        "n_tool_calls": 3,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": [
+        {
+          "name": "ci_relative_width",
+          "table": "outcome_analyses",
+          "expression": "maximum(ci_upper_limit - ci_lower_limit, 0.0) / maximum(maximum(ci_upper_limit - ci_lower_limit, 0.0) + abs(param_value), 1e-6)",
+          "description": "",
+          "units": "",
+          "expected_range": null,
+          "why_it_matters": "",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit",
+            "param_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "ci_asymmetry",
+          "table": "outcome_analyses",
+          "expression": "maximum(minimum((ci_lower_limit + ci_upper_limit - 2.0 * param_value) / maximum(ci_upper_limit - ci_lower_limit, 1e-6), 1.0), -1.0)",
+          "description": "",
+          "units": "",
+          "expected_range": null,
+          "why_it_matters": "",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit",
+            "param_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "p_below_declared_alpha",
+          "table": "outcome_analyses",
+          "expression": "1.0 * (p_value < maximum(minimum(1.0 - ci_percent / 100.0, 0.5), 0.001))",
+          "description": "",
+          "units": "",
+          "expected_range": null,
+          "why_it_matters": "",
+          "columns": [
+            "ci_percent",
+            "p_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `groups_description` -- a rescaling of something the model already has"
+          ]
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "n_proposed": 3,
+      "n_accepted": 3,
+      "n_rejected": 0,
+      "is_error": false,
+      "cost_usd": 0.6790605000000001,
+      "audit": {
+        "n_tool_calls": 3,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": []
+    }
+  ]
+}

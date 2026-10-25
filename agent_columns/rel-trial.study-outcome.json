@@ -1,0 +1,334 @@
+{
+  "dataset": "rel-trial",
+  "task": "study-outcome",
+  "model": "claude-opus-5",
+  "complete": true,
+  "n_accepted": 8,
+  "n_rounds": 3,
+  "cost_usd": 4.045,
+  "accepted": [
+    {
+      "name": "ci_se_consistency",
+      "table": "outcome_analyses",
+      "expression": "minimum(maximum((ci_upper_limit - ci_lower_limit) / maximum(dispersion_value, 0.000000001), 0), 50)",
+      "description": "CI width measured in units of the reported dispersion. Should be about 3.92 whenever dispersion_value really is the standard error behind a 95% Wald interval. Populated on the ~19% of rows that report a dispersion.",
+      "units": "dimensionless (CI widths per dispersion unit)",
+      "expected_range": [
+        0.0,
+        50.0
+      ],
+      "why_it_matters": "dispersion_type conflates a standard error of the mean with a standard deviation (and does so in two different casings), so the same column means different things on different rows. This ratio separates them numerically: it lands near 3.92 for a genuine SE and far from it when the sponsor filed an SD or used a non-Wald method, which tells you whether dispersion_value can be trusted as a precision.",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit",
+        "dispersion_value"
+      ],
+      "problems": []
+    },
+    {
+      "name": "event_log_odds",
+      "table": "reported_event_totals",
+      "expression": "minimum(maximum(log((subjects_affected + 0.5) / maximum(subjects_at_risk - subjects_affected + 0.5, 0.5)), -12), 12)",
+      "description": "Haldane-corrected log-odds that a participant in this reporting group experienced an event of this class. The 0.5 continuity correction keeps groups with zero events finite, which matters because the lower quartile of subjects_affected is 0.",
+      "units": "log-odds",
+      "expected_range": [
+        -12.0,
+        12.0
+      ],
+      "why_it_matters": "The raw rate is unusable near 0 and near 1 and its variance depends on its own level; log-odds is the scale on which event rates are actually compared and modelled. Adverse-event burden is a direct predictor of whether a trial reaches its endpoint, and the correction stops the very common zero-event group from becoming a degenerate 0.",
+      "columns": [
+        "subjects_affected",
+        "subjects_at_risk"
+      ],
+      "problems": []
+    },
+    {
+      "name": "event_rate_se",
+      "table": "reported_event_totals",
+      "expression": "minimum(sqrt(maximum(subjects_affected, 0.5) * maximum(subjects_at_risk - subjects_affected, 0.5) / maximum(subjects_at_risk, 1) ** 3), 1)",
+      "description": "Binomial standard error sqrt(p(1-p)/n) of this group's event rate, with a half-event floor so all-or-nothing groups get a finite value. A legitimate proportion SE cannot exceed 0.5, so the clamp at 1 also marks rows where subjects_affected exceeds subjects_at_risk.",
+      "units": "proportion (same units as the event rate)",
+      "expected_range": [
+        0.0,
+        1.0
+      ],
+      "why_it_matters": "It fuses group size and event rate into how precisely this group's rate is known - the thing that decides whether an observed difference can reach significance. A rate of 1/2 and a rate of 500/1000 are the same number and completely different evidence; only this column separates them. The median group has 29 at risk, so most of the mass sits below 0.15.",
+      "columns": [
+        "subjects_affected",
+        "subjects_at_risk"
+      ],
+      "problems": []
+    },
+    {
+      "name": "detectable_effect_scale",
+      "table": "studies",
+      "expression": "sqrt(2 * maximum(number_of_arms, 1) / maximum(minimum(enrollment, 1000000), 1))",
+      "description": "The standardised effect size a two-arm comparison in this trial can resolve, proportional to sqrt(2 / participants-per-arm). enrollment is capped at 1e6 first because the column is unvalidated and reaches 188,814,085, which cannot be a participant count.",
+      "units": "multiples of the outcome standard deviation (Cohen's d scale)",
+      "expected_range": [
+        0.0,
+        10.0
+      ],
+      "why_it_matters": "This is the powered-or-not question in one number, and it is the sqrt of the arms-per-participant ratio, not the ratio: statistical power scales with the square root of sample size, so the ratio itself is the wrong functional form. A typical trial (60 participants, 2 arms) lands near 0.26; large phase 3 trials fall below 0.05. Null on the ~24% observational rows, which have number_of_groups rather than number_of_arms.",
+      "columns": [
+        "enrollment",
+        "number_of_arms"
+      ],
+      "problems": []
+    },
+    {
+      "name": "param_outside_own_ci",
+      "table": "outcome_analyses",
+      "expression": "(param_value < ci_lower_limit) * 1.0 + (param_value > ci_upper_limit) * 1.0 + 0 * (param_value + ci_lower_limit + ci_upper_limit)",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "ci_lower_limit",
+        "ci_upper_limit",
+        "param_value"
+      ],
+      "problems": []
+    },
+    {
+      "name": "effect_signal_fraction",
+      "table": "outcome_analyses",
+      "expression": "abs(param_value) / (abs(param_value) + abs(dispersion_value) + 0.000001)",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "dispersion_value",
+        "param_value"
+      ],
+      "problems": []
+    },
+    {
+      "name": "zero_event_rule_of_three",
+      "table": "reported_event_totals",
+      "expression": "(subjects_affected < 0.5) * 3.0 / (subjects_at_risk + 3.0) + 0 * subjects_affected",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "subjects_affected",
+        "subjects_at_risk"
+      ],
+      "problems": []
+    },
+    {
+      "name": "event_rate_per_at_risk",
+      "table": "reported_event_totals",
+      "expression": "subjects_affected / (subjects_at_risk + (subjects_at_risk < 1) * 1.0)",
+      "description": "",
+      "units": "",
+      "expected_range": null,
+      "why_it_matters": "",
+      "columns": [
+        "subjects_affected",
+        "subjects_at_risk"
+      ],
+      "problems": []
+    }
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "n_proposed": 9,
+      "n_accepted": 4,
+      "n_rejected": 5,
+      "is_error": false,
+      "cost_usd": 1.109166,
+      "audit": {
+        "n_tool_calls": 8,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": [
+        {
+          "name": "ci_wald_z",
+          "table": "outcome_analyses",
+          "expression": "minimum(maximum(3.92 * param_value / maximum(ci_upper_limit - ci_lower_limit, 0.000001), -50), 50)",
+          "description": "The Wald test statistic implied by the reported confidence interval: for a 95% two-sided CI the standard error is (upper - lower)/3.92, so this is the effect estimate divided by its own standard error. Clamped to +/-50 because param_value and ci_upper_limit both carry unvalidated extremes (a 999999999 sentinel for an unbounded interval collapses this harmlessly toward 0).",
+          "units": "standard errors of the effect estimate",
+          "expected_range": [
+            -50.0,
+            50.0
+          ],
+          "why_it_matters": "|z| > 1.96 is exactly the p < 0.05 decision the study-outcome label is built from, but it is recoverable from the interval even on the ~18% of analyses where p_value is null. The median CI level is 95 on both quartiles, so the 3.92 constant is right for the bulk of rows.",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit",
+            "param_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "ci_null_margin",
+          "table": "outcome_analyses",
+          "expression": "minimum(maximum((abs(ci_lower_limit + ci_upper_limit) - (ci_upper_limit - ci_lower_limit)) / maximum(ci_upper_limit - ci_lower_limit, 0.000001), -1), 50)",
+          "description": "Signed distance from zero to the nearest confidence bound, expressed in CI widths. Positive when the whole interval lies on one side of no effect, negative when the interval straddles zero, and exactly -1 when the interval is centred on zero. Uses only the two bounds, so it survives a null param_value.",
+          "units": "dimensionless (multiples of the CI width)",
+          "expected_range": [
+            -1.0,
+            50.0
+          ],
+          "why_it_matters": "This is the significance verdict for a difference-type estimate (Mean Difference, LS Mean Difference, Risk Difference - about half the populated param_type values), graded rather than thresholded, so a marginal result and an overwhelming one are distinguishable.",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "ci_ratio_null_margin",
+          "table": "outcome_analyses",
+          "expression": "minimum(maximum((abs(ci_lower_limit + ci_upper_limit - 2) - (ci_upper_limit - ci_lower_limit)) / maximum(ci_upper_limit - ci_lower_limit, 0.000001), -1), 50)",
+          "description": "The same signed margin, but measured against a null of 1 instead of 0 - the correct null for the ratio-type estimates (Odds Ratio, Hazard Ratio, Risk Ratio). Positive when the interval excludes 1.",
+          "units": "dimensionless (multiples of the CI width)",
+          "expected_range": [
+            -1.0,
+            50.0
+          ],
+          "why_it_matters": "param_type mixes differences and ratios in one column and must never be pooled; a single null-exclusion test is wrong for whichever family it was not written for. Supplying both nulls lets the model pick the right one using the categorical param_type, instead of silently testing ratios against zero.",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "ci_asymmetry",
+          "table": "outcome_analyses",
+          "expression": "minimum(maximum((2 * param_value - ci_lower_limit - ci_upper_limit) / maximum(ci_upper_limit - ci_lower_limit, 0.000001), -5), 5)",
+          "description": "Where the point estimate sits inside its own interval, in half-widths: 0 means the estimate is at the exact midpoint, +1 means it sits on the upper bound. Expect a tight spike at 0 and a spread-out tail.",
+          "units": "dimensionless (half-widths off centre)",
+          "expected_range": [
+            -5.0,
+            5.0
+          ],
+          "why_it_matters": "A symmetric interval means a Wald interval on a difference scale; a systematically off-centre one means the interval was built on a log or exact scale, i.e. the estimate is a ratio. It recovers the difference-vs-ratio distinction from the numbers alone, and values outside [-1, 1] flag rows where the estimate falls outside its own CI - a data-entry error this table is documented to contain.",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit",
+            "param_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "p_ci_significance_disagreement",
+          "table": "outcome_analyses",
+          "expression": "(p_value < 0.05) * 1.0 - ((abs(ci_lower_limit + ci_upper_limit) - (ci_upper_limit - ci_lower_limit)) > 0) * 1.0 + 0 * (p_value + ci_lower_limit + ci_upper_limit)",
+          "description": "Whether the two independent recordings of significance in this row agree: 0 = they agree, +1 = the p-value says significant but the interval covers zero, -1 = the interval excludes zero but the p-value does not clear 0.05. The trailing 0 * (...) term exists only to make the column null whenever any of its three inputs is null, instead of letting a null silently read as not-significant.",
+          "units": "signed indicator",
+          "expected_range": [
+            -1.0,
+            1.0
+          ],
+          "why_it_matters": "A +1 is a real signal, not noise: it is where the analysis is a ratio-type estimate (null 1, not 0) or where the p-value was multiplicity-adjusted while the CI was not. Because the study-outcome label is a threshold on p_value, how a sponsor reconciles its p-values with its intervals is a fingerprint of its reporting discipline. Expect a strong majority of exact zeros, with the +1 arm carrying most of the remainder.",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit",
+            "p_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "n_proposed": 5,
+      "n_accepted": 3,
+      "n_rejected": 2,
+      "is_error": false,
+      "cost_usd": 1.4729735,
+      "audit": {
+        "n_tool_calls": 16,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": [
+        {
+          "name": "ci_direction",
+          "table": "outcome_analyses",
+          "expression": "(ci_lower_limit > 0) * 1.0 - (ci_upper_limit < 0) * 1.0 + 0 * (ci_lower_limit + ci_upper_limit)",
+          "description": "",
+          "units": "",
+          "expected_range": null,
+          "why_it_matters": "",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        },
+        {
+          "name": "ci_ratio_direction",
+          "table": "outcome_analyses",
+          "expression": "(ci_lower_limit > 1) * 1.0 - (ci_upper_limit < 1) * 1.0 + 0 * (ci_lower_limit + ci_upper_limit)",
+          "description": "",
+          "units": "",
+          "expected_range": null,
+          "why_it_matters": "",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "n_proposed": 2,
+      "n_accepted": 1,
+      "n_rejected": 1,
+      "is_error": false,
+      "cost_usd": 1.462838,
+      "audit": {
+        "n_tool_calls": 13,
+        "n_off_allowlist": 0,
+        "n_data_access": 0,
+        "usable": true
+      },
+      "rejected": [
+        {
+          "name": "ci_estimate_offset",
+          "table": "outcome_analyses",
+          "expression": "(2.0 * param_value - ci_lower_limit - ci_upper_limit) * (ci_upper_limit - ci_lower_limit) / ((ci_upper_limit - ci_lower_limit) * (ci_upper_limit - ci_lower_limit) + 1e-12)",
+          "description": "",
+          "units": "",
+          "expected_range": null,
+          "why_it_matters": "",
+          "columns": [
+            "ci_lower_limit",
+            "ci_upper_limit",
+            "param_value"
+          ],
+          "problems": [
+            "|corr| 1.0000 with existing column `non_inferiority_description` -- a rescaling of something the model already has"
+          ]
+        }
+      ]
+    }
+  ]
+}
